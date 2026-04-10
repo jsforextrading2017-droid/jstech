@@ -18,3 +18,29 @@ View your app in AI Studio: https://ai.studio/apps/52ca69e7-3cac-4acf-a71b-86733
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Deploy on Railway
+
+1. Create a new Railway project from this repository.
+2. Add these environment variables in Railway:
+   - `OPENAI_API_KEY` for OpenAI article generation
+   - `GEMINI_API_KEY` if you want Gemini fallback
+3. Use the default build command:
+   - `npm run build`
+4. Use the start command:
+   - `npm start`
+5. Railway will provide `PORT` automatically, and the server reads it at runtime.
+
+## Facebook Story Publishing
+
+To prepare the app for Facebook Page story publishing, add these server-side environment variables:
+
+- `META_APP_ID`
+- `META_APP_SECRET`
+- `META_PAGE_ID`
+- `META_PAGE_ACCESS_TOKEN`
+
+Important:
+- Keep `META_APP_SECRET` and `META_PAGE_ACCESS_TOKEN` on the server only.
+- A Page access token is what actually publishes content to the Facebook Page.
+- The app secret is used for OAuth/app verification flows, not for frontend code.

@@ -1,7 +1,7 @@
 import React from 'react';
-import { generateNewsArticle, checkAIStatus } from '../lib/newsApi';
+import { generateNewsArticle, checkAIStatus, testMetaConnection } from '../lib/newsApi';
 import { storage } from '../lib/storage';
-import { Article, Category, AdConfig } from '../types';
+import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -11,7 +11,7 @@ import { Label } from './ui/label';
 import { 
   Loader2, Plus, RefreshCw, Trash2, Wand2, Megaphone, 
   FileText, Settings, CheckCircle2, XCircle, AlertCircle, 
-  ExternalLink, LogOut, LogIn, Key, ShieldCheck 
+  ExternalLink, LogOut, LogIn, Key, ShieldCheck, ClipboardList, Send, Ban 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -23,15 +23,39 @@ interface AdminPanelProps {
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [articles, setArticles] = React.useState<Article[]>([]);
+  const [drafts, setDrafts] = React.useState<DraftArticle[]>([]);
   const [adConfig, setAdConfig] = React.useState<AdConfig>({ adsenseCode: '', adsKeeperCode: '', showAds: false });
+  const [aiConfig, setAiConfig] = React.useState<AiConfig>({
+    ctaText: 'Read the full story',
+    tone: 'bold',
+    imageStyle: 'editorial',
+  });
+  const [imagePrompt, setImagePrompt] = React.useState('');
+  const [facebookConfig, setFacebookConfig] = React.useState<FacebookConfig>({
+    pageName: 'jshubnetwork',
+    storyCtaText: 'Swipe to read',
+    storyLinkLabel: 'Read more',
+  });
+  const [metaConfig, setMetaConfig] = React.useState<MetaConfig>({
+    appId: '',
+    appSecret: '',
+    pageId: '',
+    pageAccessToken: '',
+  });
   const [aiStatus, setAiStatus] = React.useState<{ connected: boolean; model: string; provider: string; isClientKey?: boolean } | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = React.useState(false);
+  const [isTestingMeta, setIsTestingMeta] = React.useState(false);
+  const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
   const [showLoginModal, setShowLoginModal] = React.useState(false);
   const [tempKey, setTempKey] = React.useState('');
 
   React.useEffect(() => {
     setArticles(storage.getArticles());
+    setDrafts(storage.getDrafts());
     setAdConfig(storage.getAds());
+    setAiConfig(storage.getAIConfig());
+    setFacebookConfig(storage.getFacebookConfig());
+    setMetaConfig(storage.getMetaConfig());
     handleCheckStatus();
   }, []);
 
@@ -84,6 +108,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     toast.info("Signed out of ChatGPT.");
   };
 
+  const refreshCollections = () => {
+    setArticles(storage.getArticles());
+    setDrafts(storage.getDrafts());
+    onArticlesUpdate();
+  };
+
   const handleGenerate = async (category: Category) => {
     if (!aiStatus?.connected) {
       setShowLoginModal(true);
@@ -91,22 +121,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     }
     setIsGenerating(true);
     try {
-      const newArticleData = await generateNewsArticle(category);
-      const newArticle: Article = {
+      const newArticleData = await generateNewsArticle(category, aiConfig, imagePrompt);
+      const draft: DraftArticle = {
         id: Math.random().toString(36).substr(2, 9),
-        ...newArticleData as any
+        ...(newArticleData as any),
+        createdAt: new Date().toISOString(),
+        imagePrompt,
       };
-      storage.saveArticle(newArticle);
-      setArticles(storage.getArticles());
-      onArticlesUpdate();
+      storage.saveDraft(draft);
+      setDrafts(storage.getDrafts());
+      setImagePrompt('');
       
       if (newArticleData.warning) {
         toast.warning("OpenAI Quota Exceeded", {
-          description: "Automatically switched to Gemini fallback to generate your article.",
+          description: "The draft was saved using Gemini fallback. Review it before publishing.",
           duration: 5000,
         });
       } else {
-        toast.success(`Generated new ${category} article!`);
+        toast.success(`Generated new ${category} draft!`);
       }
     } catch (error: any) {
       console.error(error);
@@ -123,6 +155,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     }
   };
 
+  const handlePublishDraft = (id: string) => {
+    try {
+      const published = storage.publishDraft(id);
+      if (!published) {
+        toast.error("Draft not found.");
+        return;
+      }
+      setArticles(storage.getArticles());
+      setDrafts(storage.getDrafts());
+      onArticlesUpdate();
+      toast.success(`Published "${published.title}"`);
+    } catch (error: any) {
+      console.error("Publish failed:", error);
+      const message = String(error?.message || error);
+      if (message.includes("QuotaExceededError") || message.toLowerCase().includes("quota")) {
+        toast.error("Browser storage is full.", {
+          description: "Delete older drafts or regenerate with the new URL-based image flow.",
+          duration: 7000,
+        });
+      } else {
+        toast.error(message || "Failed to publish draft.");
+      }
+    }
+  };
+
+  const handleDeleteDraft = (id: string) => {
+    storage.deleteDraft(id);
+    setDrafts(storage.getDrafts());
+    toast.info("Draft removed.");
+  };
+
   const handleDelete = (id: string) => {
     storage.deleteArticle(id);
     setArticles(storage.getArticles());
@@ -135,6 +198,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     toast.success("Ad configuration saved.");
   };
 
+  const handleSaveAI = () => {
+    storage.saveAIConfig(aiConfig);
+    toast.success("AI configuration saved.");
+  };
+
+  const handleSaveFacebook = () => {
+    storage.saveFacebookConfig(facebookConfig);
+    toast.success("Facebook story settings saved.");
+  };
+
+  const handleSaveMeta = () => {
+    storage.saveMetaConfig(metaConfig);
+    toast.success("Meta credentials saved locally for testing.");
+  };
+
+  const handleTestMeta = async () => {
+    setIsTestingMeta(true);
+    setMetaTestResult(null);
+    try {
+      const result = await testMetaConnection(metaConfig);
+      setMetaTestResult(result);
+      toast.success("Meta credentials verified.");
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Meta credentials test failed.");
+      setMetaTestResult({
+        message: error.message || "Meta credentials test failed.",
+      });
+    } finally {
+      setIsTestingMeta(false);
+    }
+  };
+
   if (!aiStatus?.connected && !showLoginModal) {
     return (
       <div className="container mx-auto px-4 py-24 flex flex-col items-center text-center">
@@ -143,7 +239,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
         </div>
         <h1 className="text-4xl font-serif font-bold mb-4">Admin Authentication</h1>
         <p className="text-muted-foreground max-w-md mb-12">
-          Nova News uses ChatGPT to generate high-quality editorial content. Sign in with your OpenAI account to begin.
+          jshubnetwork uses ChatGPT to generate high-quality editorial content. Sign in with your OpenAI account to begin.
         </p>
         <Button size="lg" onClick={() => setShowLoginModal(true)} className="gap-2 px-8 h-12 text-lg">
           <LogIn size={20} />
@@ -161,7 +257,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6">
         <div>
-          <h1 className="text-4xl font-serif font-bold mb-2">Newsroom Dashboard</h1>
+          <h1 className="text-4xl font-serif font-bold mb-2">jshubnetwork Dashboard</h1>
           <p className="text-muted-foreground">Manage your content, advertising, and AI connection.</p>
         </div>
         <div className="flex items-center gap-4">
@@ -177,10 +273,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
       </div>
 
       <Tabs defaultValue="content" className="space-y-8">
-        <TabsList className="grid w-full max-w-lg grid-cols-3">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="content" className="gap-2">
             <FileText size={16} />
             Content
+          </TabsTrigger>
+          <TabsTrigger value="review" className="gap-2">
+            <ClipboardList size={16} />
+            Review
           </TabsTrigger>
           <TabsTrigger value="ads" className="gap-2">
             <Megaphone size={16} />
@@ -209,9 +309,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
               </div>
             </CardHeader>
             <CardContent>
+              <div className="space-y-2 mb-6">
+                <Label htmlFor="imagePrompt">Image Prompt for This Story</Label>
+                <textarea
+                  id="imagePrompt"
+                  value={imagePrompt}
+                  onChange={(e) => setImagePrompt(e.target.value)}
+                  placeholder="Example: college football coach on the sideline using a tablet with AI analytics overlays, stadium lights, intense action..."
+                  className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This prompt is used as the main visual direction for the generated image.
+                </p>
+              </div>
+
               <div className="flex flex-wrap gap-3">
-                {(['World', 'Tech', 'Politics', 'Science', 'Sport', 'Health', 'Entertainment'] as Category[]).map((cat) => (
+                {(['Tech', 'Travel', 'Animal', 'Facts', 'Cars', 'Building Homes'] as Category[]).map((cat) => (
                   <Button
+                    type="button"
                     key={cat}
                     variant="outline"
                     disabled={isGenerating}
@@ -268,6 +383,91 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
           </div>
         </TabsContent>
 
+        <TabsContent value="review" className="space-y-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Draft Review Queue</CardTitle>
+              <CardDescription>
+                Review drafts here before publishing them to the live site.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {drafts.map((draft) => (
+                <Card key={draft.id} className="overflow-hidden border">
+                  <div className="flex flex-col md:flex-row">
+                    <div className="w-full md:w-56 h-40 overflow-hidden">
+                      <img
+                        src={draft.imageUrl}
+                        alt={draft.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="flex-1 p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="secondary">{draft.category}</Badge>
+                            {draft.warning && <Badge variant="outline">Fallback</Badge>}
+                          </div>
+                          <h3 className="text-xl font-bold">{draft.title}</h3>
+                          <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{draft.summary}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive/80"
+                          onClick={() => handleDeleteDraft(draft.id)}
+                        >
+                          <Trash2 size={18} />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-muted-foreground">
+                        <p><span className="font-semibold">Author:</span> {draft.author}</p>
+                        <p><span className="font-semibold">Image subject:</span> {draft.imageSubject || 'Not set'}</p>
+                        <p><span className="font-semibold">Created:</span> {new Date(draft.createdAt).toLocaleString()}</p>
+                        <p><span className="font-semibold">Image prompt:</span> {draft.imagePrompt || 'Not provided'}</p>
+                      </div>
+
+                      {draft.portraitImageUrl && (
+                        <div className="rounded-2xl border bg-muted/20 p-3">
+                          <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">Story Preview</div>
+                          <div className="aspect-[9/16] max-w-[180px] overflow-hidden rounded-xl">
+                            <img
+                              src={draft.portraitImageUrl}
+                              alt={`${draft.title} portrait preview`}
+                              className="h-full w-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-3">
+                        <Button type="button" onClick={() => handlePublishDraft(draft.id)} className="gap-2">
+                          <Send size={14} />
+                          Publish
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={() => handleDeleteDraft(draft.id)} className="gap-2">
+                          <Ban size={14} />
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+
+              {drafts.length === 0 && (
+                <div className="text-center py-24 border-2 border-dashed rounded-xl">
+                  <p className="text-muted-foreground">No drafts waiting for review.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="ads">
           <Card>
             <CardHeader>
@@ -321,7 +521,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
           <Card>
             <CardHeader>
               <CardTitle>System Settings</CardTitle>
-              <CardDescription>Configure your news platform preferences.</CardDescription>
+              <CardDescription>Configure your jshubnetwork platform preferences.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
               <div className="p-6 rounded-xl border bg-muted/30 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -349,6 +549,181 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                   {isCheckingStatus ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
                   Refresh Status
                 </Button>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-6">
+                <div>
+                  <h3 className="text-lg font-bold">CTA and Cover Image</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Control the article hook and the photo style generated from each title.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ctaText">CTA Text</Label>
+                  <Input
+                    id="ctaText"
+                    value={aiConfig.ctaText}
+                    onChange={(e) => setAiConfig({ ...aiConfig, ctaText: e.target.value })}
+                    placeholder="Read the full story"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tone">Writing Tone</Label>
+                    <select
+                      id="tone"
+                      value={aiConfig.tone}
+                      onChange={(e) => setAiConfig({ ...aiConfig, tone: e.target.value as AiConfig['tone'] })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="urgent">Urgent</option>
+                      <option value="bold">Bold</option>
+                      <option value="inspiring">Inspiring</option>
+                      <option value="investigative">Investigative</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="imageStyle">Cover Photo Style</Label>
+                    <select
+                      id="imageStyle"
+                      value={aiConfig.imageStyle}
+                      onChange={(e) => setAiConfig({ ...aiConfig, imageStyle: e.target.value as AiConfig['imageStyle'] })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="editorial">Editorial</option>
+                      <option value="dramatic">Dramatic</option>
+                      <option value="modern">Modern</option>
+                      <option value="clean">Clean</option>
+                    </select>
+                  </div>
+                </div>
+
+                <Button onClick={handleSaveAI} className="w-full md:w-auto">
+                  Save AI Configuration
+                </Button>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-6">
+                <div>
+                  <h3 className="text-lg font-bold">Facebook Story Setup</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Prepare the Page Story package and CTA text. Automatic publishing still requires Meta-approved story access.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pageName">Facebook Page Name</Label>
+                  <Input
+                    id="pageName"
+                    value={facebookConfig.pageName}
+                    onChange={(e) => setFacebookConfig({ ...facebookConfig, pageName: e.target.value })}
+                    placeholder="jshubnetwork"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="storyCtaText">Story CTA Text</Label>
+                  <Input
+                    id="storyCtaText"
+                    value={facebookConfig.storyCtaText}
+                    onChange={(e) => setFacebookConfig({ ...facebookConfig, storyCtaText: e.target.value })}
+                    placeholder="Swipe to read"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="storyLinkLabel">Link Label</Label>
+                  <Input
+                    id="storyLinkLabel"
+                    value={facebookConfig.storyLinkLabel}
+                    onChange={(e) => setFacebookConfig({ ...facebookConfig, storyLinkLabel: e.target.value })}
+                    placeholder="Read more"
+                  />
+                </div>
+
+                <Button onClick={handleSaveFacebook} className="w-full md:w-auto">
+                  Save Facebook Settings
+                </Button>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-6">
+                <div>
+                  <h3 className="text-lg font-bold">Meta API Credentials</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Store your app ID, app secret, page ID, and page access token locally so we can test the publishing flow on this machine.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="metaAppId">App ID</Label>
+                  <Input
+                    id="metaAppId"
+                    value={metaConfig.appId}
+                    onChange={(e) => setMetaConfig({ ...metaConfig, appId: e.target.value })}
+                    placeholder="123456789012345"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="metaAppSecret">App Secret</Label>
+                  <Input
+                    id="metaAppSecret"
+                    type="password"
+                    value={metaConfig.appSecret}
+                    onChange={(e) => setMetaConfig({ ...metaConfig, appSecret: e.target.value })}
+                    placeholder="••••••••••••••••"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="metaPageId">Page ID</Label>
+                  <Input
+                    id="metaPageId"
+                    value={metaConfig.pageId}
+                    onChange={(e) => setMetaConfig({ ...metaConfig, pageId: e.target.value })}
+                    placeholder="123456789012345"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="metaPageAccessToken">Page Access Token</Label>
+                  <Input
+                    id="metaPageAccessToken"
+                    type="password"
+                    value={metaConfig.pageAccessToken}
+                    onChange={(e) => setMetaConfig({ ...metaConfig, pageAccessToken: e.target.value })}
+                    placeholder="EAAB..."
+                  />
+                </div>
+
+                <Button onClick={handleSaveMeta} className="w-full md:w-auto">
+                  Save Meta Credentials
+                </Button>
+
+                <Button variant="outline" onClick={handleTestMeta} disabled={isTestingMeta} className="w-full md:w-auto gap-2">
+                  {isTestingMeta ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                  Test Meta Connection
+                </Button>
+
+                {metaTestResult && (
+                  <div className="rounded-xl border bg-muted/20 p-4 text-sm space-y-2">
+                    <div className="font-semibold">
+                      {metaTestResult.message || 'Meta test complete.'}
+                    </div>
+                    {metaTestResult.pageName && (
+                      <p><span className="font-medium">Page:</span> {metaTestResult.pageName}</p>
+                    )}
+                    {metaTestResult.tokenType && (
+                      <p><span className="font-medium">Token type:</span> {metaTestResult.tokenType}</p>
+                    )}
+                    {metaTestResult.scopes && metaTestResult.scopes.length > 0 && (
+                      <p><span className="font-medium">Scopes:</span> {metaTestResult.scopes.join(', ')}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

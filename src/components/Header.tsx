@@ -11,7 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCategory, onCategorySelect }) => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
-  const categories = ['World', 'Politics', 'Tech', 'Science', 'Sport', 'Health', 'Entertainment'];
+  const categories = ['Tech', 'Travel', 'Animal', 'Facts', 'Cars', 'Building Homes'];
 
   return (
     <header className="sticky top-0 z-50 glass-nav">
@@ -20,7 +20,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
           <div className="bg-primary text-primary-foreground p-1.5 rounded">
             <Newspaper size={24} />
           </div>
-          <span className="text-2xl font-serif font-black tracking-tighter uppercase">Nova News</span>
+          <span className="text-2xl font-serif font-black tracking-tighter uppercase">jshubnetwork</span>
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium uppercase tracking-widest">
