@@ -13,7 +13,8 @@ import { Button } from './components/ui/button';
 import { motion } from 'motion/react';
 
 export default function App() {
-  const [view, setView] = React.useState<'news' | 'admin'>('news');
+  const getViewFromPath = () => (window.location.pathname.startsWith('/admin') ? 'admin' : 'news');
+  const [view, setView] = React.useState<'news' | 'admin'>(getViewFromPath);
   const [selectedArticle, setSelectedArticle] = React.useState<Article | null>(null);
   const [articles, setArticles] = React.useState<Article[]>([]);
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(null);
@@ -24,8 +25,27 @@ export default function App() {
     setArticles(storage.getArticles());
   }, []);
 
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setView(getViewFromPath());
+      setSelectedArticle(null);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const refreshArticles = () => {
     setArticles(storage.getArticles());
+  };
+
+  const navigateToView = (nextView: 'news' | 'admin') => {
+    const nextPath = nextView === 'admin' ? '/admin' : '/';
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+    setView(nextView);
+    setSelectedArticle(null);
   };
 
   const handleArticleClick = (article: Article) => {
@@ -51,12 +71,12 @@ export default function App() {
     <div className="min-h-screen bg-background font-sans selection:bg-primary selection:text-primary-foreground">
       <Header 
         currentView={view} 
-        setView={(v) => { setView(v); setSelectedArticle(null); }} 
+        setView={navigateToView} 
         selectedCategory={selectedCategory}
         onCategorySelect={(cat) => {
           setSelectedCategory(cat);
           setSelectedArticle(null);
-          setView('news');
+          navigateToView('news');
         }}
       />
       
@@ -193,10 +213,10 @@ export default function App() {
                     <p className="mt-4 text-sm leading-relaxed text-primary-foreground/80">
                       This front page now uses stronger story hierarchy, a prominent feature lead, and tighter category groupings.
                     </p>
-                    <Button
+                  <Button
                       variant="secondary"
                       className="mt-6 w-full rounded-full bg-white text-primary hover:bg-white/90"
-                      onClick={() => setView('admin')}
+                      onClick={() => navigateToView('admin')}
                     >
                       Open Admin
                     </Button>

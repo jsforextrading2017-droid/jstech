@@ -16,12 +16,15 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
   return (
     <header className="sticky top-0 z-50 glass-nav">
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setView('news'); onCategorySelect(null); }}>
+        <button
+          className="flex items-center gap-2 cursor-pointer text-left"
+          onClick={() => { setView('news'); onCategorySelect(null); }}
+        >
           <div className="bg-primary text-primary-foreground p-1.5 rounded">
             <Newspaper size={24} />
           </div>
           <span className="text-2xl font-serif font-black tracking-tighter uppercase">jshubnetwork</span>
-        </div>
+        </button>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium uppercase tracking-widest">
           {categories.map((cat) => (
@@ -43,7 +46,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
             onClick={() => setView(currentView === 'admin' ? 'news' : 'admin')}
           >
             <LayoutDashboard size={16} />
-            {currentView === 'admin' ? 'View Site' : 'Admin'}
+            {currentView === 'admin' ? 'View Site' : 'Admin /admin'}
           </Button>
           
           <button className="md:hidden" onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -76,7 +79,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
             }}
           >
             <LayoutDashboard size={16} />
-            {currentView === 'admin' ? 'View Site' : 'Admin'}
+            {currentView === 'admin' ? 'View Site' : 'Admin /admin'}
           </Button>
         </div>
       )}

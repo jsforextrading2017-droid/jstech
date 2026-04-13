@@ -10,11 +10,10 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { 
   Loader2, Plus, RefreshCw, Trash2, Wand2, Megaphone, 
-  FileText, Settings, CheckCircle2, XCircle, AlertCircle, 
-  ExternalLink, LogOut, LogIn, Key, ShieldCheck, ClipboardList, Send, Ban 
+  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban 
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 
 interface AdminPanelProps {
   onArticlesUpdate: () => void;
@@ -46,8 +45,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   const [isCheckingStatus, setIsCheckingStatus] = React.useState(false);
   const [isTestingMeta, setIsTestingMeta] = React.useState(false);
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
-  const [showLoginModal, setShowLoginModal] = React.useState(false);
-  const [tempKey, setTempKey] = React.useState('');
 
   React.useEffect(() => {
     setArticles(storage.getArticles());
@@ -72,42 +69,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     }
   };
 
-  const handleLogin = async () => {
-    if (!tempKey.trim()) {
-      toast.error("Please enter your OpenAI API Key.");
-      return;
-    }
-    
-    setIsCheckingStatus(true);
-    // Temporarily save to test
-    const oldKey = localStorage.getItem('nova_openai_key');
-    localStorage.setItem('nova_openai_key', tempKey);
-    
-    try {
-      const status = await checkAIStatus();
-      if (status.connected) {
-        setAiStatus(status);
-        setShowLoginModal(false);
-        setTempKey('');
-        toast.success("Successfully signed in to ChatGPT!");
-      } else {
-        localStorage.setItem('nova_openai_key', oldKey || '');
-        toast.error("Invalid API Key. Please check and try again.");
-      }
-    } catch (error) {
-      localStorage.setItem('nova_openai_key', oldKey || '');
-      toast.error("Failed to verify key.");
-    } finally {
-      setIsCheckingStatus(false);
-    }
-  };
-
-  const handleSignOut = () => {
-    localStorage.removeItem('nova_openai_key');
-    handleCheckStatus();
-    toast.info("Signed out of ChatGPT.");
-  };
-
   const refreshCollections = () => {
     setArticles(storage.getArticles());
     setDrafts(storage.getDrafts());
@@ -115,10 +76,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   };
 
   const handleGenerate = async (category: Category) => {
-    if (!aiStatus?.connected) {
-      setShowLoginModal(true);
-      return;
-    }
     setIsGenerating(true);
     try {
       const newArticleData = await generateNewsArticle(category, aiConfig, imagePrompt);
@@ -231,43 +188,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     }
   };
 
-  if (!aiStatus?.connected && !showLoginModal) {
-    return (
-      <div className="container mx-auto px-4 py-24 flex flex-col items-center text-center">
-        <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-8">
-          <Key className="text-primary" size={40} />
-        </div>
-        <h1 className="text-4xl font-serif font-bold mb-4">Admin Authentication</h1>
-        <p className="text-muted-foreground max-w-md mb-12">
-          jshubnetwork uses ChatGPT to generate high-quality editorial content. Sign in with your OpenAI account to begin.
-        </p>
-        <Button size="lg" onClick={() => setShowLoginModal(true)} className="gap-2 px-8 h-12 text-lg">
-          <LogIn size={20} />
-          Sign in with ChatGPT
-        </Button>
-        <p className="mt-8 text-xs text-muted-foreground flex items-center gap-1">
-          <ShieldCheck size={14} />
-          Your API key is stored locally and used only for generation.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6">
         <div>
           <h1 className="text-4xl font-serif font-bold mb-2">jshubnetwork Dashboard</h1>
-          <p className="text-muted-foreground">Manage your content, advertising, and AI connection.</p>
+          <p className="text-muted-foreground">Manage your content, advertising, and AI connection from /admin.</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right hidden sm:block">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Account</p>
-            <p className="text-sm font-medium">{aiStatus?.isClientKey ? 'Personal API Key' : 'System Account'}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Provider</p>
+            <p className="text-sm font-medium">{aiStatus?.provider || 'Loading status'}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={handleSignOut} className="gap-2">
-            <LogOut size={14} />
-            Sign Out
+          <Button variant="outline" size="sm" onClick={handleCheckStatus} disabled={isCheckingStatus} className="gap-2">
+            {isCheckingStatus ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+            Refresh Status
           </Button>
         </div>
       </div>
@@ -299,12 +234,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                 <div>
                   <CardTitle>Generate News</CardTitle>
                   <CardDescription>
-                    Select a category to generate a new article using {aiStatus?.provider || 'AI'}.
+                    Select a category to generate a new article using {aiStatus?.provider || 'the configured AI provider'}.
                   </CardDescription>
                 </div>
                 <Badge variant={aiStatus?.provider?.includes('Fallback') ? 'secondary' : 'default'} className="gap-1">
                   {aiStatus?.connected ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
-                  {aiStatus?.provider || 'Disconnected'}
+                  {aiStatus?.provider || 'Checking'}
                 </Badge>
               </div>
             </CardHeader>
@@ -530,25 +465,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                     {aiStatus?.connected ? <CheckCircle2 size={32} /> : <XCircle size={32} />}
                   </div>
                   <div>
-                    <h3 className="font-bold text-lg">
-                      ChatGPT Status: {aiStatus?.connected ? 'Connected' : 'Disconnected'}
-                    </h3>
+                    <h3 className="font-bold text-lg">AI Status: {aiStatus?.connected ? 'Connected' : 'Disconnected'}</h3>
                     <p className="text-sm text-muted-foreground">
                       {aiStatus?.connected 
                         ? `Using ${aiStatus.provider} ${aiStatus.model} for content generation.` 
-                        : "Sign in to enable AI capabilities."}
+                        : "Set an OpenAI API key on the server or use Gemini fallback."}
                     </p>
                   </div>
                 </div>
-                <Button 
-                  variant="outline" 
-                  onClick={handleCheckStatus} 
-                  disabled={isCheckingStatus}
-                  className="gap-2"
-                >
-                  {isCheckingStatus ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-                  Refresh Status
-                </Button>
               </div>
 
               <div className="space-y-4 rounded-xl border p-6">
@@ -730,91 +654,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
         </TabsContent>
       </Tabs>
 
-      {/* Login Modal */}
-      <AnimatePresence>
-        {showLoginModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowLoginModal(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h2 className="text-2xl font-serif font-bold">Sign in to ChatGPT</h2>
-                    <p className="text-sm text-muted-foreground">Connect your OpenAI account to generate news.</p>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => setShowLoginModal(false)}>
-                    <XCircle size={20} />
-                  </Button>
-                </div>
-
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="apiKey">OpenAI API Key</Label>
-                    <div className="relative">
-                      <Input 
-                        id="apiKey"
-                        type="password"
-                        placeholder="sk-..."
-                        value={tempKey}
-                        onChange={(e) => setTempKey(e.target.value)}
-                        className="pr-10"
-                      />
-                      <Key className="absolute right-3 top-2.5 text-muted-foreground" size={16} />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      Your key is used only for generation and never shared.
-                    </p>
-                  </div>
-
-                  <Button 
-                    className="w-full h-11 gap-2" 
-                    onClick={handleLogin}
-                    disabled={isCheckingStatus}
-                  >
-                    {isCheckingStatus ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
-                    Connect Account
-                  </Button>
-
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-white dark:bg-zinc-900 px-2 text-muted-foreground">Help</span>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-muted-foreground space-y-2">
-                    <p className="flex items-center gap-2">
-                      <AlertCircle size={14} className="text-primary" />
-                      Don't have an API key?
-                    </p>
-                    <a 
-                      href="https://platform.openai.com/api-keys" 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="text-primary hover:underline flex items-center gap-1"
-                    >
-                      Get one from OpenAI Dashboard <ExternalLink size={10} />
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };
