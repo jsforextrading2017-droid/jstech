@@ -148,3 +148,29 @@ export async function testMetaConnection(metaConfig: MetaConfig): Promise<{
 
   return data;
 }
+
+export async function publishFacebookStory(payload: {
+  title: string;
+  summary: string;
+  category: string;
+  imageUrl: string;
+  portraitImageUrl?: string;
+  storyCtaText: string;
+  pageName: string;
+  pageId: string;
+  pageAccessToken: string;
+  isBreaking?: boolean;
+}): Promise<{ published: boolean; result?: unknown }> {
+  const response = await fetch('/api/meta/publish-story', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to publish Facebook story');
+  }
+
+  return data;
+}

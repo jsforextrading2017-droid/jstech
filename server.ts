@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import sharp from "sharp";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import {
@@ -29,6 +30,18 @@ type AiConfig = {
 type MetaConfig = {
   appId?: string;
   appSecret?: string;
+  pageId?: string;
+  pageAccessToken?: string;
+};
+
+type FacebookStoryPayload = {
+  title?: string;
+  summary?: string;
+  category?: string;
+  imageUrl?: string;
+  portraitImageUrl?: string;
+  storyCtaText?: string;
+  pageName?: string;
   pageId?: string;
   pageAccessToken?: string;
 };
@@ -170,6 +183,152 @@ const safeReadJson = async (response: Response) => {
   } catch {
     return { raw: text };
   }
+};
+
+const createStoryOverlaySvg = (payload: {
+  title: string;
+  summary: string;
+  category: string;
+  storyCtaText: string;
+  pageName: string;
+  isBreaking?: boolean;
+}) => {
+  const escape = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const wrapLine = (text: string, maxChars: number) => {
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word;
+      if (next.length <= maxChars) {
+        current = next;
+      } else {
+        if (current) lines.push(current);
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  };
+
+  const titleLines = wrapLine(payload.title, 24).slice(0, 5);
+  const summaryLines = wrapLine(payload.summary, 38).slice(0, 5);
+  const titleStartY = payload.isBreaking ? 248 : 188;
+  const summaryStartY = titleStartY + titleLines.length * 78 + 28;
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+      <defs>
+        <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="rgba(0,0,0,0.1)" />
+          <stop offset="55%" stop-color="rgba(0,0,0,0.2)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0.88)" />
+        </linearGradient>
+      </defs>
+      <rect width="1080" height="1920" fill="#0b0b0f" />
+      <rect width="1080" height="1920" fill="url(#fade)" />
+      <rect x="72" y="84" width="180" height="6" rx="3" fill="rgba(255,255,255,0.92)" />
+      <text x="72" y="138" fill="rgba(255,255,255,0.76)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
+      ${payload.isBreaking ? `<rect x="72" y="160" width="190" height="48" rx="10" fill="#dc2626" />` : ''}
+      ${payload.isBreaking ? `<text x="98" y="194" fill="#ffffff" font-size="24" font-family="Arial, Helvetica, sans-serif" font-weight="700">BREAKING</text>` : ''}
+      ${titleLines
+        .map(
+          (line, index) =>
+            `<text x="72" y="${titleStartY + index * 78}" fill="#ffffff" font-size="68" font-family="Georgia, 'Times New Roman', serif" font-weight="700">${escape(line)}</text>`
+        )
+        .join('')}
+      ${summaryLines
+        .map(
+          (line, index) =>
+            `<text x="72" y="${summaryStartY + index * 46}" fill="rgba(255,255,255,0.9)" font-size="34" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
+        )
+        .join('')}
+      <text x="72" y="1770" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.storyCtaText.toUpperCase())}</text>
+      <text x="72" y="1812" fill="rgba(255,255,255,0.8)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
+    </svg>
+  `;
+};
+
+const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: boolean }) => {
+  const bgUrl = payload.portraitImageUrl || payload.imageUrl;
+  if (!bgUrl) {
+    throw new Error('Missing story background image');
+  }
+
+  const imageResponse = await fetch(bgUrl);
+  if (!imageResponse.ok) {
+    throw new Error('Failed to load story background image');
+  }
+
+  const bgBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  const base = sharp(bgBuffer).resize(1080, 1920, { fit: 'cover' });
+  const overlay = Buffer.from(
+    createStoryOverlaySvg({
+      title: payload.title || 'Story',
+      summary: payload.summary || '',
+      category: payload.category || 'News',
+      storyCtaText: payload.storyCtaText || 'Swipe to read',
+      pageName: payload.pageName || 'jshubnetwork',
+      isBreaking: payload.isBreaking,
+    })
+  );
+
+  return base
+    .composite([{ input: overlay }])
+    .jpeg({ quality: 92 })
+    .toBuffer();
+};
+
+const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?: boolean }) => {
+  const pageId = payload.pageId?.trim();
+  const pageAccessToken = payload.pageAccessToken?.trim();
+
+  if (!pageId || !pageAccessToken) {
+    throw new Error('Missing Meta page credentials.');
+  }
+
+  const storyBuffer = await renderStoryImage(payload);
+  const form = new FormData();
+  form.append('source', new Blob([storyBuffer], { type: 'image/jpeg' }), 'facebook-story.jpg');
+  form.append('published', 'false');
+
+  const uploadUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/${pageId}/photos`);
+  uploadUrl.searchParams.set('access_token', pageAccessToken);
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    body: form,
+  });
+  const uploadData = await safeReadJson(uploadResponse);
+  if (!uploadResponse.ok) {
+    throw new Error(uploadData?.error?.message || 'Failed to upload story image.');
+  }
+
+  const photoId = uploadData?.id || uploadData?.photo_id;
+  if (!photoId) {
+    throw new Error('Facebook did not return a photo id.');
+  }
+
+  const storyUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/${pageId}/photo_stories`);
+  storyUrl.searchParams.set('access_token', pageAccessToken);
+  storyUrl.searchParams.set('attached_media', JSON.stringify([{ media_fbid: photoId }]));
+
+  const storyResponse = await fetch(storyUrl, {
+    method: 'POST',
+  });
+  const storyData = await safeReadJson(storyResponse);
+  if (!storyResponse.ok) {
+    throw new Error(storyData?.error?.message || 'Failed to publish Facebook story.');
+  }
+
+  return storyData;
 };
 
 async function startServer() {
@@ -589,6 +748,48 @@ async function startServer() {
       return res.status(500).json({
         connected: false,
         message: error.message || "Meta connection test failed.",
+      });
+    }
+  });
+
+  app.post("/api/meta/publish-story", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    const payload = req.body as FacebookStoryPayload;
+    const pageId = payload.pageId?.trim();
+    const pageAccessToken = payload.pageAccessToken?.trim();
+
+    if (!pageId || !pageAccessToken) {
+      return res.status(400).json({
+        published: false,
+        message: "Missing Meta credentials.",
+      });
+    }
+
+    if (!payload.title || (!payload.imageUrl && !payload.portraitImageUrl)) {
+      return res.status(400).json({
+        published: false,
+        message: "Missing story content.",
+      });
+    }
+
+    try {
+      const result = await uploadFacebookStory({
+        ...payload,
+        pageId,
+        pageAccessToken,
+      });
+
+      return res.json({
+        published: true,
+        result,
+      });
+    } catch (error: any) {
+      console.error("Facebook story publish failed:", error);
+      return res.status(500).json({
+        published: false,
+        message: error.message || "Facebook story publish failed.",
       });
     }
   });

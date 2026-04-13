@@ -1,5 +1,5 @@
 import React from 'react';
-import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection, logoutAdmin } from '../lib/newsApi';
+import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection, logoutAdmin, publishFacebookStory } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -114,6 +114,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       storage.saveDraft(draft);
       setDrafts(storage.getDrafts());
       setImagePrompt('');
+
+      const canPublishStory = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
+      if (canPublishStory) {
+        try {
+          await publishFacebookStory({
+            title: newArticleData.title || category,
+            summary: newArticleData.summary || '',
+            category,
+            imageUrl: newArticleData.imageUrl || draft.imageUrl,
+            portraitImageUrl: newArticleData.portraitImageUrl || draft.portraitImageUrl,
+            storyCtaText: facebookConfig.storyCtaText,
+            pageName: facebookConfig.pageName,
+            pageId: metaConfig.pageId,
+            pageAccessToken: metaConfig.pageAccessToken,
+            isBreaking: Boolean(newArticleData.isBreaking),
+          });
+          toast.success("Facebook Story published automatically.");
+        } catch (storyError) {
+          console.error("Facebook story publish failed:", storyError);
+          toast.warning("Draft saved, but Facebook Story publish failed.");
+        }
+      }
       
       if (newArticleData.warning) {
         toast.warning("OpenAI Quota Exceeded", {
