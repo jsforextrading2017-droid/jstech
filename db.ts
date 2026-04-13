@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Pool } from 'pg';
 
 export type OpenAIKeySource = 'database' | 'environment' | 'none';
@@ -22,6 +23,13 @@ const ensureSchema = async () => {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      token TEXT PRIMARY KEY,
+      expires_at TIMESTAMPTZ NOT NULL
     );
   `);
 };
@@ -93,4 +101,89 @@ export const saveOpenAIKey = async (apiKey: string) => {
 
 export const clearOpenAIKey = async () => {
   await deleteSetting('openai_api_key');
+};
+
+export type PasswordRecord = {
+  salt: string;
+  hash: string;
+};
+
+const ADMIN_PASSWORD_KEY = 'admin_password';
+const DEFAULT_ADMIN_PASSWORD = 'admin123';
+const PASSWORD_ITERATIONS = 120000;
+const PASSWORD_KEYLEN = 64;
+const PASSWORD_DIGEST = 'sha512';
+
+const encodePassword = (password: string, salt: string) =>
+  crypto.pbkdf2Sync(password, salt, PASSWORD_ITERATIONS, PASSWORD_KEYLEN, PASSWORD_DIGEST).toString('hex');
+
+const createPasswordRecord = (password: string): PasswordRecord => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return {
+    salt,
+    hash: encodePassword(password, salt),
+  };
+};
+
+export const verifyPasswordRecord = (password: string, record: PasswordRecord) =>
+  crypto.timingSafeEqual(
+    Buffer.from(encodePassword(password, record.salt), 'hex'),
+    Buffer.from(record.hash, 'hex')
+  );
+
+export const getAdminPasswordRecord = async (): Promise<PasswordRecord> => {
+  const stored = await getSetting(ADMIN_PASSWORD_KEY);
+  if (stored) {
+    const [salt, hash] = stored.split(':');
+    if (salt && hash) {
+      return { salt, hash };
+    }
+  }
+
+  const fallback = createPasswordRecord(DEFAULT_ADMIN_PASSWORD);
+  await setSetting(ADMIN_PASSWORD_KEY, `${fallback.salt}:${fallback.hash}`);
+  return fallback;
+};
+
+export const setAdminPassword = async (password: string) => {
+  const record = createPasswordRecord(password);
+  await setSetting(ADMIN_PASSWORD_KEY, `${record.salt}:${record.hash}`);
+};
+
+export const createAdminSession = async (token: string, expiresAt: Date) => {
+  await withPool(async (activePool) => {
+    await activePool.query(
+      `
+        INSERT INTO admin_sessions (token, expires_at)
+        VALUES ($1, $2)
+        ON CONFLICT (token)
+        DO UPDATE SET expires_at = EXCLUDED.expires_at
+      `,
+      [token, expiresAt.toISOString()]
+    );
+  });
+};
+
+export const getAdminSession = async (token: string) => {
+  const result = await withPool(async (activePool) => {
+    const data = await activePool.query<{ token: string; expires_at: string }>(
+      'SELECT token, expires_at FROM admin_sessions WHERE token = $1',
+      [token]
+    );
+    return data.rows[0] ?? null;
+  });
+
+  return result;
+};
+
+export const deleteAdminSession = async (token: string) => {
+  await withPool(async (activePool) => {
+    await activePool.query('DELETE FROM admin_sessions WHERE token = $1', [token]);
+  });
+};
+
+export const cleanupExpiredAdminSessions = async () => {
+  await withPool(async (activePool) => {
+    await activePool.query('DELETE FROM admin_sessions WHERE expires_at < NOW()');
+  });
 };

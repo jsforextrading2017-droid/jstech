@@ -1,5 +1,5 @@
 import React from 'react';
-import { generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection } from '../lib/newsApi';
+import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection, logoutAdmin } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -17,9 +17,10 @@ import { motion } from 'motion/react';
 
 interface AdminPanelProps {
   onArticlesUpdate: () => void;
+  onLogout: () => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogout }) => {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [articles, setArticles] = React.useState<Article[]>([]);
   const [drafts, setDrafts] = React.useState<DraftArticle[]>([]);
@@ -46,6 +47,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   const [isTestingMeta, setIsTestingMeta] = React.useState(false);
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
   const [openaiKey, setOpenaiKey] = React.useState('');
+  const [currentPassword, setCurrentPassword] = React.useState('');
+  const [newPassword, setNewPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
 
   React.useEffect(() => {
     setArticles(storage.getArticles());
@@ -214,6 +218,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
       });
   };
 
+  const handleChangePassword = () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Please fill in all password fields.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match.");
+      return;
+    }
+
+    changeAdminPassword(currentPassword, newPassword)
+      .then(async () => {
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        await logoutAdmin();
+        toast.success("Password updated. Please log in again.");
+        window.location.href = '/admin';
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error(error instanceof Error ? error.message : "Failed to change password.");
+      });
+  };
+
+  const handleLogout = () => {
+    logoutAdmin()
+      .then(() => {
+        onLogout();
+        toast.info("Logged out.");
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error(error instanceof Error ? error.message : "Failed to log out.");
+      });
+  };
+
   const handleSaveFacebook = () => {
     storage.saveFacebookConfig(facebookConfig);
     toast.success("Facebook story settings saved.");
@@ -264,6 +306,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
           <Button variant="outline" size="sm" onClick={handleCheckStatus} disabled={isCheckingStatus} className="gap-2">
             {isCheckingStatus ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
             Refresh Status
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
+            Log Out
           </Button>
         </div>
       </div>
@@ -572,6 +617,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                     Clear Saved Key
                   </Button>
                 </div>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-6">
+                <div>
+                  <h3 className="text-lg font-bold">Admin Password</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Update the admin login password. The default login is <code>admin / admin123</code> until you change it.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Current password"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirm New</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                    />
+                  </div>
+                </div>
+
+                <Button onClick={handleChangePassword} className="w-full md:w-auto">
+                  Update Admin Password
+                </Button>
               </div>
 
               <div className="space-y-4 rounded-xl border p-6">

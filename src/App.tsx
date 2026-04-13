@@ -5,16 +5,25 @@ import { AdminPanel } from './components/AdminPanel';
 import { ArticleDetail } from './components/ArticleDetail';
 import { AdBanner } from './components/AdBanner';
 import { storage } from './lib/storage';
+import { checkAdminSession, loginAdmin } from './lib/newsApi';
 import { Article } from './types';
 import { Toaster } from './components/ui/sonner';
 import { Separator } from './components/ui/separator';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import { LogIn, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
   const getViewFromPath = () => (window.location.pathname.startsWith('/admin') ? 'admin' : 'news');
   const [view, setView] = React.useState<'news' | 'admin'>(getViewFromPath);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = React.useState(false);
+  const [isCheckingAdmin, setIsCheckingAdmin] = React.useState(true);
+  const [adminUsername, setAdminUsername] = React.useState('admin');
+  const [adminPassword, setAdminPassword] = React.useState('admin123');
+  const [isAdminLoggingIn, setIsAdminLoggingIn] = React.useState(false);
   const [selectedArticle, setSelectedArticle] = React.useState<Article | null>(null);
   const [articles, setArticles] = React.useState<Article[]>([]);
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(null);
@@ -24,6 +33,32 @@ export default function App() {
     storage.seedInitialData();
     setArticles(storage.getArticles());
   }, []);
+
+  React.useEffect(() => {
+    const syncAuth = async () => {
+      if (!window.location.pathname.startsWith('/admin')) {
+        setIsAdminAuthenticated(false);
+        setIsCheckingAdmin(false);
+        return;
+      }
+
+      setIsCheckingAdmin(true);
+      try {
+        const session = await checkAdminSession();
+        setIsAdminAuthenticated(session.authenticated);
+        if (!session.authenticated) {
+          localStorage.removeItem('nova_admin_session_token');
+        }
+      } catch (error) {
+        console.error(error);
+        setIsAdminAuthenticated(false);
+      } finally {
+        setIsCheckingAdmin(false);
+      }
+    };
+
+    syncAuth();
+  }, [view]);
 
   React.useEffect(() => {
     const handlePopState = () => {
@@ -48,6 +83,27 @@ export default function App() {
     setSelectedArticle(null);
   };
 
+  const handleAdminLogin = async () => {
+    if (!adminUsername.trim() || !adminPassword.trim()) {
+      return;
+    }
+
+    setIsAdminLoggingIn(true);
+    try {
+      const result = await loginAdmin(adminUsername.trim(), adminPassword);
+      if (result.token) {
+        localStorage.setItem('nova_admin_session_token', result.token);
+      }
+      setIsAdminAuthenticated(true);
+    } catch (error) {
+      console.error(error);
+      setIsAdminAuthenticated(false);
+      alert(error instanceof Error ? error.message : 'Failed to log in.');
+    } finally {
+      setIsAdminLoggingIn(false);
+    }
+  };
+
   const handleArticleClick = (article: Article) => {
     setSelectedArticle(article);
     window.scrollTo(0, 0);
@@ -70,8 +126,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background font-sans selection:bg-primary selection:text-primary-foreground">
       <Header 
-        currentView={view} 
-        setView={navigateToView} 
         selectedCategory={selectedCategory}
         onCategorySelect={(cat) => {
           setSelectedCategory(cat);
@@ -84,7 +138,59 @@ export default function App() {
         {selectedArticle ? (
           <ArticleDetail article={selectedArticle} onBack={() => setSelectedArticle(null)} />
         ) : view === 'admin' ? (
-          <AdminPanel onArticlesUpdate={refreshArticles} />
+          isCheckingAdmin ? (
+            <div className="container mx-auto px-4 py-32 text-center">
+              <p className="text-muted-foreground">Checking admin session...</p>
+            </div>
+          ) : !isAdminAuthenticated ? (
+            <div className="container mx-auto px-4 py-20">
+              <div className="mx-auto max-w-md rounded-[2rem] border bg-card p-8 shadow-sm">
+                <div className="mb-8 text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <ShieldCheck size={32} />
+                  </div>
+                  <h1 className="text-3xl font-serif font-black">Admin Login</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Enter your admin credentials to continue.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="adminUsername">Username</Label>
+                    <Input
+                      id="adminUsername"
+                      value={adminUsername}
+                      onChange={(e) => setAdminUsername(e.target.value)}
+                      autoComplete="username"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="adminPassword">Password</Label>
+                    <Input
+                      id="adminPassword"
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <Button className="w-full gap-2" onClick={handleAdminLogin} disabled={isAdminLoggingIn}>
+                    <LogIn size={16} />
+                    {isAdminLoggingIn ? 'Signing in...' : 'Log In'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+          <AdminPanel
+            onArticlesUpdate={refreshArticles}
+            onLogout={() => {
+              localStorage.removeItem('nova_admin_session_token');
+              setIsAdminAuthenticated(false);
+            }}
+          />
+          )
         ) : (
           <div className="relative overflow-hidden">
             <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_top_left,_rgba(0,0,0,0.08),_transparent_45%),linear-gradient(180deg,_rgba(0,0,0,0.03),_transparent_55%)] pointer-events-none" />
@@ -213,15 +319,8 @@ export default function App() {
                     <p className="mt-4 text-sm leading-relaxed text-primary-foreground/80">
                       This front page now uses stronger story hierarchy, a prominent feature lead, and tighter category groupings.
                     </p>
-                  <Button
-                      variant="secondary"
-                      className="mt-6 w-full rounded-full bg-white text-primary hover:bg-white/90"
-                      onClick={() => navigateToView('admin')}
-                    >
-                      Open Admin
-                    </Button>
-                  </div>
-                </motion.aside>
+                </div>
+              </motion.aside>
               </section>
 
               <AdBanner type="adsense" className="mb-14" />
@@ -350,7 +449,6 @@ export default function App() {
               {articles.length === 0 && (
                 <div className="text-center py-32">
                   <h2 className="text-2xl font-serif font-bold text-muted-foreground">No news available.</h2>
-                  <p className="text-muted-foreground mt-2">Visit the admin panel to generate some stories.</p>
                 </div>
               )}
             </div>

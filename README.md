@@ -51,3 +51,9 @@ Important:
 
 The OpenAI key saved in the admin panel is stored in PostgreSQL under the `app_settings` table.
 If `OPENAI_API_KEY` is also set on Railway, the database value takes priority.
+
+## Admin Access
+
+- Visit `/admin` to open the admin login page.
+- Default credentials: `admin` / `admin123`
+- After logging in, you can change the password from the admin settings page.

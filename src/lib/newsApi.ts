@@ -5,11 +5,75 @@ const jsonHeaders = {
 };
 
 export type OpenAIKeySource = 'database' | 'environment' | 'none';
+export type AdminAuthState = {
+  authenticated: boolean;
+  token?: string;
+  expiresAt?: string;
+};
+
+const getAuthHeaders = () => {
+  const headers: Record<string, string> = { ...jsonHeaders };
+  const token = localStorage.getItem('nova_admin_session_token');
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+export async function checkAdminSession(): Promise<{ authenticated: boolean }> {
+  const response = await fetch('/api/admin/me', {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    return { authenticated: false };
+  }
+
+  return response.json();
+}
+
+export async function loginAdmin(username: string, password: string): Promise<AdminAuthState> {
+  const response = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ username, password }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to log in');
+  }
+
+  return data;
+}
+
+export async function logoutAdmin(): Promise<void> {
+  await fetch('/api/admin/logout', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  localStorage.removeItem('nova_admin_session_token');
+}
+
+export async function changeAdminPassword(currentPassword: string, newPassword: string): Promise<{ updated: boolean; message?: string }> {
+  const response = await fetch('/api/admin/password', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to change password');
+  }
+
+  return data;
+}
 
 export async function saveOpenAIKey(apiKey: string): Promise<{ saved: boolean; source: OpenAIKeySource }> {
   const response = await fetch('/api/admin/openai-key', {
     method: 'POST',
-    headers: jsonHeaders,
+    headers: getAuthHeaders(),
     body: JSON.stringify({ apiKey }),
   });
 
@@ -24,7 +88,7 @@ export async function saveOpenAIKey(apiKey: string): Promise<{ saved: boolean; s
 export async function clearOpenAIKey(): Promise<{ deleted: boolean; source: OpenAIKeySource }> {
   const response = await fetch('/api/admin/openai-key', {
     method: 'DELETE',
-    headers: jsonHeaders,
+    headers: getAuthHeaders(),
   });
 
   const data = await response.json();

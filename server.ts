@@ -4,7 +4,19 @@ import path from "path";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
-import { clearOpenAIKey, resolveOpenAIKey, saveOpenAIKey } from "./db";
+import crypto from "crypto";
+import {
+  clearOpenAIKey,
+  cleanupExpiredAdminSessions,
+  createAdminSession,
+  deleteAdminSession,
+  getAdminPasswordRecord,
+  getAdminSession,
+  resolveOpenAIKey,
+  saveOpenAIKey,
+  setAdminPassword,
+  verifyPasswordRecord,
+} from "./db";
 
 dotenv.config();
 
@@ -169,7 +181,136 @@ async function startServer() {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
   const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
+  const getBearerToken = (req: express.Request) => {
+    const auth = req.headers.authorization || '';
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    return match?.[1] || null;
+  };
+
+  const requireAdmin = async (req: express.Request, res: express.Response) => {
+    await cleanupExpiredAdminSessions();
+    const token = getBearerToken(req);
+    if (!token) {
+      res.status(401).json({ authenticated: false, message: 'Not authenticated' });
+      return null;
+    }
+
+    const session = await getAdminSession(token);
+    if (!session || new Date(session.expires_at).getTime() < Date.now()) {
+      if (session) {
+        await deleteAdminSession(token);
+      }
+      res.status(401).json({ authenticated: false, message: 'Session expired' });
+      return null;
+    }
+
+    return token;
+  };
+
+  app.get("/api/admin/me", async (req, res) => {
+    const token = getBearerToken(req);
+    if (!token) {
+      return res.json({ authenticated: false });
+    }
+
+    const session = await getAdminSession(token);
+    if (!session || new Date(session.expires_at).getTime() < Date.now()) {
+      if (session) {
+        await deleteAdminSession(token);
+      }
+      return res.json({ authenticated: false });
+    }
+
+    return res.json({ authenticated: true });
+  });
+
+  app.post("/api/admin/login", async (req, res) => {
+    const { username, password } = req.body as { username?: string; password?: string };
+
+    if (username !== 'admin' || !password) {
+      return res.status(400).json({
+        authenticated: false,
+        message: 'Invalid credentials.',
+      });
+    }
+
+    try {
+      const record = await getAdminPasswordRecord();
+      const ok = verifyPasswordRecord(password, record);
+      if (!ok) {
+        return res.status(401).json({
+          authenticated: false,
+          message: 'Invalid username or password.',
+        });
+      }
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+      await createAdminSession(token, expiresAt);
+
+      return res.json({
+        authenticated: true,
+        token,
+        expiresAt: expiresAt.toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Admin login failed:", error);
+      return res.status(500).json({
+        authenticated: false,
+        message: error.message || 'Admin login failed.',
+      });
+    }
+  });
+
+  app.post("/api/admin/logout", async (req, res) => {
+    const token = getBearerToken(req);
+    if (token) {
+      await deleteAdminSession(token);
+    }
+
+    return res.json({ loggedOut: true });
+  });
+
+  app.post("/api/admin/password", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        updated: false,
+        message: 'Current and new passwords are required.',
+      });
+    }
+
+    try {
+      const record = await getAdminPasswordRecord();
+      if (!verifyPasswordRecord(currentPassword, record)) {
+        return res.status(401).json({
+          updated: false,
+          message: 'Current password is incorrect.',
+        });
+      }
+
+      await setAdminPassword(newPassword);
+      await deleteAdminSession(token);
+      return res.json({
+        updated: true,
+        message: 'Password updated. Please log in again.',
+      });
+    } catch (error: any) {
+      console.error("Password update failed:", error);
+      return res.status(500).json({
+        updated: false,
+        message: error.message || 'Password update failed.',
+      });
+    }
+  });
+
   app.post("/api/admin/openai-key", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
     const { apiKey } = req.body as { apiKey?: string };
 
     if (!apiKey?.trim()) {
@@ -195,6 +336,9 @@ async function startServer() {
   });
 
   app.delete("/api/admin/openai-key", async (_req, res) => {
+    const token = await requireAdmin(_req, res);
+    if (!token) return;
+
     try {
       await clearOpenAIKey();
       return res.json({

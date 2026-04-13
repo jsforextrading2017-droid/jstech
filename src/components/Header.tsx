@@ -1,15 +1,12 @@
 import React from 'react';
-import { Newspaper, LayoutDashboard, Menu, X } from 'lucide-react';
-import { Button } from './ui/button';
+import { Newspaper, Menu, X } from 'lucide-react';
 
 interface HeaderProps {
-  currentView: 'news' | 'admin';
-  setView: (view: 'news' | 'admin') => void;
   selectedCategory: string | null;
   onCategorySelect: (category: string | null) => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCategory, onCategorySelect }) => {
+export const Header: React.FC<HeaderProps> = ({ selectedCategory, onCategorySelect }) => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const categories = ['Tech', 'Travel', 'Animal', 'Facts', 'Cars', 'Building Homes'];
 
@@ -18,7 +15,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
         <button
           className="flex items-center gap-2 cursor-pointer text-left"
-          onClick={() => { setView('news'); onCategorySelect(null); }}
+          onClick={() => onCategorySelect(null)}
         >
           <div className="bg-primary text-primary-foreground p-1.5 rounded">
             <Newspaper size={24} />
@@ -39,16 +36,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
         </nav>
 
         <div className="flex items-center gap-4">
-          <Button
-            variant={currentView === 'admin' ? 'default' : 'ghost'}
-            size="sm"
-            className="hidden md:flex gap-2 uppercase tracking-widest text-xs font-bold"
-            onClick={() => setView(currentView === 'admin' ? 'news' : 'admin')}
-          >
-            <LayoutDashboard size={16} />
-            {currentView === 'admin' ? 'View Site' : 'Admin /admin'}
-          </Button>
-          
           <button className="md:hidden" onClick={() => setIsMenuOpen(!isMenuOpen)}>
             {isMenuOpen ? <X /> : <Menu />}
           </button>
@@ -70,17 +57,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setView, selectedCa
               {cat}
             </button>
           ))}
-          <Button
-            variant="default"
-            className="w-full gap-2 uppercase tracking-widest text-xs font-bold"
-            onClick={() => {
-              setView(currentView === 'admin' ? 'news' : 'admin');
-              setIsMenuOpen(false);
-            }}
-          >
-            <LayoutDashboard size={16} />
-            {currentView === 'admin' ? 'View Site' : 'Admin /admin'}
-          </Button>
         </div>
       )}
     </header>
