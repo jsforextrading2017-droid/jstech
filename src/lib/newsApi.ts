@@ -1,15 +1,39 @@
 import { Article, Category, AiConfig, MetaConfig } from "../types";
 
-const getHeaders = () => {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  const userKey = localStorage.getItem('nova_openai_key');
-  if (userKey) {
-    headers['x-openai-key'] = userKey;
-  }
-  return headers;
+const jsonHeaders = {
+  'Content-Type': 'application/json',
 };
+
+export type OpenAIKeySource = 'database' | 'environment' | 'none';
+
+export async function saveOpenAIKey(apiKey: string): Promise<{ saved: boolean; source: OpenAIKeySource }> {
+  const response = await fetch('/api/admin/openai-key', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ apiKey }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to save OpenAI key');
+  }
+
+  return data;
+}
+
+export async function clearOpenAIKey(): Promise<{ deleted: boolean; source: OpenAIKeySource }> {
+  const response = await fetch('/api/admin/openai-key', {
+    method: 'DELETE',
+    headers: jsonHeaders,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to clear OpenAI key');
+  }
+
+  return data;
+}
 
 export async function generateNewsArticle(
   category: Category,
@@ -18,7 +42,7 @@ export async function generateNewsArticle(
 ): Promise<Partial<Article>> {
   const response = await fetch('/api/generate', {
     method: 'POST',
-    headers: getHeaders(),
+    headers: jsonHeaders,
     body: JSON.stringify({ category, aiConfig, imagePrompt }),
   });
 
@@ -30,9 +54,9 @@ export async function generateNewsArticle(
   return response.json();
 }
 
-export async function checkAIStatus(): Promise<{ connected: boolean; model: string; provider: string; isClientKey?: boolean }> {
+export async function checkAIStatus(): Promise<{ connected: boolean; model: string; provider: string; keySource?: OpenAIKeySource }> {
   const response = await fetch('/api/ai-status', {
-    headers: getHeaders(),
+    headers: jsonHeaders,
   });
   if (!response.ok) throw new Error('Failed to check AI status');
   return response.json();
@@ -48,7 +72,7 @@ export async function testMetaConnection(metaConfig: MetaConfig): Promise<{
 }> {
   const response = await fetch('/api/meta/test-connection', {
     method: 'POST',
-    headers: getHeaders(),
+    headers: jsonHeaders,
     body: JSON.stringify(metaConfig),
   });
 

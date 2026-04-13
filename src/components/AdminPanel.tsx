@@ -1,5 +1,5 @@
 import React from 'react';
-import { generateNewsArticle, checkAIStatus, testMetaConnection } from '../lib/newsApi';
+import { generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -41,7 +41,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     pageId: '',
     pageAccessToken: '',
   });
-  const [aiStatus, setAiStatus] = React.useState<{ connected: boolean; model: string; provider: string; isClientKey?: boolean } | null>(null);
+  const [aiStatus, setAiStatus] = React.useState<{ connected: boolean; model: string; provider: string; keySource?: 'database' | 'environment' | 'none' } | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = React.useState(false);
   const [isTestingMeta, setIsTestingMeta] = React.useState(false);
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
@@ -54,8 +54,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     setAiConfig(storage.getAIConfig());
     setFacebookConfig(storage.getFacebookConfig());
     setMetaConfig(storage.getMetaConfig());
-    setOpenaiKey(localStorage.getItem('nova_openai_key') || '');
     handleCheckStatus();
+  }, []);
+
+  React.useEffect(() => {
+    const legacyKey = localStorage.getItem('nova_openai_key');
+    if (!legacyKey) {
+      return;
+    }
+
+    const migrateLegacyKey = async () => {
+      try {
+        await saveOpenAIKey(legacyKey);
+        localStorage.removeItem('nova_openai_key');
+        toast.success("Migrated your saved OpenAI key into the database.");
+        handleCheckStatus();
+      } catch (error) {
+        console.error(error);
+        toast.error("Could not migrate the saved OpenAI key.");
+      }
+    };
+
+    migrateLegacyKey();
   }, []);
 
   const handleCheckStatus = async () => {
@@ -65,7 +85,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
       setAiStatus(status);
     } catch (error) {
       console.error(error);
-      setAiStatus({ connected: false, model: 'Unknown', provider: 'OpenAI' });
+      setAiStatus({ connected: false, model: 'Unknown', provider: 'OpenAI', keySource: 'none' });
     } finally {
       setIsCheckingStatus(false);
     }
@@ -169,17 +189,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
       return;
     }
 
-    localStorage.setItem('nova_openai_key', trimmedKey);
-    setOpenaiKey(trimmedKey);
-    handleCheckStatus();
-    toast.success("OpenAI API key saved locally.");
+    saveOpenAIKey(trimmedKey)
+      .then(() => {
+        setOpenaiKey('');
+        handleCheckStatus();
+        toast.success("OpenAI API key saved in the database.");
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error(error instanceof Error ? error.message : "Failed to save OpenAI key.");
+      });
   };
 
   const handleClearOpenAIKey = () => {
-    localStorage.removeItem('nova_openai_key');
-    setOpenaiKey('');
-    handleCheckStatus();
-    toast.info("OpenAI API key cleared.");
+    clearOpenAIKey()
+      .then(() => {
+        setOpenaiKey('');
+        handleCheckStatus();
+        toast.info("OpenAI API key cleared from the database.");
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error(error instanceof Error ? error.message : "Failed to clear OpenAI key.");
+      });
   };
 
   const handleSaveFacebook = () => {
@@ -221,6 +253,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
           <div className="text-right hidden sm:block">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Provider</p>
             <p className="text-sm font-medium">{aiStatus?.provider || 'Loading status'}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {aiStatus?.keySource === 'database'
+                ? 'OpenAI key stored in PostgreSQL'
+                : aiStatus?.keySource === 'environment'
+                  ? 'Using server environment key'
+                  : 'No OpenAI key saved'}
+            </p>
           </div>
           <Button variant="outline" size="sm" onClick={handleCheckStatus} disabled={isCheckingStatus} className="gap-2">
             {isCheckingStatus ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
@@ -501,8 +540,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                 <div>
                   <h3 className="text-lg font-bold">OpenAI API Key</h3>
                   <p className="text-sm text-muted-foreground">
-                    Save a browser-side key here if you want this admin panel to use your own OpenAI account.
-                    It is stored locally in this browser under <code>nova_openai_key</code>.
+                    Save an OpenAI key here to store it in PostgreSQL on Railway. The browser does not keep a copy.
                   </p>
                 </div>
 
@@ -521,7 +559,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                   </div>
                   <p className="text-xs text-muted-foreground flex items-center gap-2">
                     <ShieldCheck size={14} />
-                    The key is only used by this browser to call the AI endpoints.
+                    The key is saved server-side and used by the AI endpoints from there.
                   </p>
                 </div>
 

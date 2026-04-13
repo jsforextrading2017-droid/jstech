@@ -4,6 +4,7 @@ import path from "path";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
+import { clearOpenAIKey, resolveOpenAIKey, saveOpenAIKey } from "./db";
 
 dotenv.config();
 
@@ -165,16 +166,53 @@ async function startServer() {
 
   app.use(express.json());
 
-  const systemOpenAIKey = process.env.OPENAI_API_KEY;
-  const openai = systemOpenAIKey ? new OpenAI({ apiKey: systemOpenAIKey }) : null;
-
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
   const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
+  app.post("/api/admin/openai-key", async (req, res) => {
+    const { apiKey } = req.body as { apiKey?: string };
+
+    if (!apiKey?.trim()) {
+      return res.status(400).json({
+        saved: false,
+        message: "Missing OpenAI API key.",
+      });
+    }
+
+    try {
+      await saveOpenAIKey(apiKey.trim());
+      return res.json({
+        saved: true,
+        source: "database",
+      });
+    } catch (error: any) {
+      console.error("Failed to save OpenAI key:", error);
+      return res.status(500).json({
+        saved: false,
+        message: error.message || "Failed to save OpenAI key.",
+      });
+    }
+  });
+
+  app.delete("/api/admin/openai-key", async (_req, res) => {
+    try {
+      await clearOpenAIKey();
+      return res.json({
+        deleted: true,
+        source: "none",
+      });
+    } catch (error: any) {
+      console.error("Failed to clear OpenAI key:", error);
+      return res.status(500).json({
+        deleted: false,
+        message: error.message || "Failed to clear OpenAI key.",
+      });
+    }
+  });
+
   // API Route for AI Status Check
   app.get("/api/ai-status", async (req, res) => {
-    const clientKey = req.headers['x-openai-key'] as string;
-    const apiKey = clientKey || process.env.OPENAI_API_KEY;
+    const { key: apiKey, source } = await resolveOpenAIKey();
     
     if (!apiKey) {
       // If no OpenAI key, check if Gemini is available as a fallback
@@ -182,7 +220,8 @@ async function startServer() {
       return res.json({ 
         connected: hasGemini, 
         model: hasGemini ? "gemini-2.0-flash" : "None", 
-        provider: hasGemini ? "Gemini (Fallback)" : "None" 
+        provider: hasGemini ? "Gemini (Fallback)" : "None",
+        keySource: source,
       });
     }
 
@@ -192,8 +231,8 @@ async function startServer() {
       res.json({ 
         connected: true,
         model: "gpt-4o",
-        provider: "OpenAI",
-        isClientKey: !!clientKey
+        provider: source === "database" ? "OpenAI (Database)" : "OpenAI (Environment)",
+        keySource: source
       });
     } catch (error) {
       const hasGemini = !!process.env.GEMINI_API_KEY;
@@ -201,7 +240,8 @@ async function startServer() {
         connected: hasGemini, 
         model: hasGemini ? "gemini-2.0-flash" : "gpt-4o", 
         provider: hasGemini ? "Gemini (Fallback)" : "OpenAI",
-        error: "Invalid OpenAI Key" 
+        error: "Invalid OpenAI Key",
+        keySource: source,
       });
     }
   });
@@ -209,8 +249,7 @@ async function startServer() {
   // API Route for News Generation
   app.post("/api/generate", async (req, res) => {
     const { category, aiConfig, imagePrompt: userImagePrompt } = req.body as { category: string; aiConfig?: AiConfig; imagePrompt?: string };
-    const clientKey = req.headers['x-openai-key'] as string;
-    const apiKey = clientKey || process.env.OPENAI_API_KEY;
+    const { key: apiKey } = await resolveOpenAIKey();
 
     const generateWithGemini = async () => {
       const prompt = buildArticlePrompt(category, aiConfig);
@@ -226,10 +265,7 @@ async function startServer() {
         throw new Error("NO_OPENAI_KEY");
       }
 
-      const activeOpenai = clientKey ? new OpenAI({ apiKey }) : openai;
-      if (!activeOpenai) {
-        throw new Error("NO_OPENAI_KEY");
-      }
+      const activeOpenai = new OpenAI({ apiKey });
       const response = await activeOpenai.chat.completions.create({
         model: "gpt-4o",
         messages: [

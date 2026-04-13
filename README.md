@@ -15,15 +15,17 @@ View your app in AI Studio: https://ai.studio/apps/52ca69e7-3cac-4acf-a71b-86733
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Set `DATABASE_URL` in [.env.local](.env.local) if you want PostgreSQL persistence
+3. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+4. Run the app:
    `npm run dev`
 
 ## Deploy on Railway
 
 1. Create a new Railway project from this repository.
 2. Add these environment variables in Railway:
-   - `OPENAI_API_KEY` for OpenAI article generation
+   - `DATABASE_URL` for PostgreSQL persistence
+   - `OPENAI_API_KEY` as an optional fallback if no database key is saved
    - `GEMINI_API_KEY` if you want Gemini fallback
 3. Use the default build command:
    - `npm run build`
@@ -44,3 +46,8 @@ Important:
 - Keep `META_APP_SECRET` and `META_PAGE_ACCESS_TOKEN` on the server only.
 - A Page access token is what actually publishes content to the Facebook Page.
 - The app secret is used for OAuth/app verification flows, not for frontend code.
+
+## OpenAI Key Storage
+
+The OpenAI key saved in the admin panel is stored in PostgreSQL under the `app_settings` table.
+If `OPENAI_API_KEY` is also set on Railway, the database value takes priority.
