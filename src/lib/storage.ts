@@ -19,6 +19,12 @@ export const storage = {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   },
 
+  updateArticle: (id: string, updater: (article: Article) => Article) => {
+    const articles = storage.getArticles();
+    const updated = articles.map((article) => (article.id === id ? updater(article) : article));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  },
+
   deleteArticle: (id: string) => {
     const articles = storage.getArticles();
     const updated = articles.filter(a => a.id !== id);
@@ -36,6 +42,12 @@ export const storage = {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated));
   },
 
+  updateDraft: (id: string, updater: (draft: DraftArticle) => DraftArticle) => {
+    const drafts = storage.getDrafts();
+    const updated = drafts.map((draft) => (draft.id === id ? updater(draft) : draft));
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated));
+  },
+
   deleteDraft: (id: string) => {
     const drafts = storage.getDrafts();
     const updated = drafts.filter(d => d.id !== id);
@@ -47,7 +59,7 @@ export const storage = {
     const draft = drafts.find(d => d.id === id);
     if (!draft) return null;
 
-      const article: Article = {
+    const article: Article = {
         id: draft.id,
         title: draft.title,
         summary: draft.summary,
@@ -61,6 +73,10 @@ export const storage = {
         isBreaking: draft.isBreaking,
         provider: draft.provider,
         warning: draft.warning,
+        facebookStoryStatus: draft.facebookStoryStatus,
+        facebookStoryPublishedAt: draft.facebookStoryPublishedAt,
+        facebookStoryError: draft.facebookStoryError,
+        facebookStoryPostId: draft.facebookStoryPostId,
       };
 
     storage.saveArticle(article);

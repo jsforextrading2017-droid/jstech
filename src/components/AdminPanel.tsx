@@ -110,6 +110,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
         ...(newArticleData as any),
         createdAt: new Date().toISOString(),
         imagePrompt,
+        facebookStoryStatus: 'pending',
       };
       storage.saveDraft(draft);
       setDrafts(storage.getDrafts());
@@ -130,11 +131,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
             pageAccessToken: metaConfig.pageAccessToken,
             isBreaking: Boolean(newArticleData.isBreaking),
           });
+          storage.updateDraft(draft.id, (current) => ({
+            ...current,
+            facebookStoryStatus: 'posted',
+            facebookStoryPublishedAt: new Date().toISOString(),
+            facebookStoryError: undefined,
+          }));
+          setDrafts(storage.getDrafts());
           toast.success("Facebook Story published automatically.");
         } catch (storyError) {
           console.error("Facebook story publish failed:", storyError);
+          storage.updateDraft(draft.id, (current) => ({
+            ...current,
+            facebookStoryStatus: 'failed',
+            facebookStoryError: storyError instanceof Error ? storyError.message : 'Facebook Story publish failed.',
+          }));
+          setDrafts(storage.getDrafts());
           toast.warning("Draft saved, but Facebook Story publish failed.");
         }
+      } else {
+        storage.updateDraft(draft.id, (current) => ({
+          ...current,
+          facebookStoryStatus: 'skipped',
+          facebookStoryError: 'Meta credentials not configured.',
+        }));
+        setDrafts(storage.getDrafts());
       }
       
       if (newArticleData.warning) {
@@ -417,6 +438,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <Badge variant="secondary">{article.category}</Badge>
+                          <Badge
+                            variant={
+                              article.facebookStoryStatus === 'posted'
+                                ? 'default'
+                                : article.facebookStoryStatus === 'failed'
+                                  ? 'destructive'
+                                  : 'secondary'
+                            }
+                          >
+                            Facebook Story: {article.facebookStoryStatus || 'pending'}
+                          </Badge>
                           <span className="text-xs text-muted-foreground">
                             {new Date(article.publishedAt).toLocaleString()}
                           </span>
@@ -472,6 +504,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                           <div className="flex items-center gap-2 mb-2">
                             <Badge variant="secondary">{draft.category}</Badge>
                             {draft.warning && <Badge variant="outline">Fallback</Badge>}
+                            <Badge
+                              variant={
+                                draft.facebookStoryStatus === 'posted'
+                                  ? 'default'
+                                  : draft.facebookStoryStatus === 'failed'
+                                    ? 'destructive'
+                                    : 'secondary'
+                              }
+                            >
+                              Facebook Story: {draft.facebookStoryStatus || 'pending'}
+                            </Badge>
                           </div>
                           <h3 className="text-xl font-bold">{draft.title}</h3>
                           <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{draft.summary}</p>
@@ -491,7 +534,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                         <p><span className="font-semibold">Image subject:</span> {draft.imageSubject || 'Not set'}</p>
                         <p><span className="font-semibold">Created:</span> {new Date(draft.createdAt).toLocaleString()}</p>
                         <p><span className="font-semibold">Image prompt:</span> {draft.imagePrompt || 'Not provided'}</p>
+                        <p><span className="font-semibold">Facebook Story:</span> {draft.facebookStoryStatus || 'pending'}</p>
+                        {draft.facebookStoryPublishedAt && (
+                          <p><span className="font-semibold">Posted:</span> {new Date(draft.facebookStoryPublishedAt).toLocaleString()}</p>
+                        )}
                       </div>
+                      {draft.facebookStoryError && draft.facebookStoryStatus === 'failed' && (
+                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                          {draft.facebookStoryError}
+                        </div>
+                      )}
 
                       {draft.portraitImageUrl && (
                         <div className="rounded-2xl border bg-muted/20 p-3">

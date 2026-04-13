@@ -14,6 +14,10 @@ export interface Article {
   isBreaking?: boolean;
   provider?: string;
   warning?: string;
+  facebookStoryStatus?: 'pending' | 'posted' | 'failed' | 'skipped';
+  facebookStoryPublishedAt?: string;
+  facebookStoryError?: string;
+  facebookStoryPostId?: string;
 }
 
 export interface DraftArticle extends Omit<Article, 'id' | 'publishedAt'> {
