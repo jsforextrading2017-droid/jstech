@@ -23,24 +23,158 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack })
       .replace(/^-+|-+$/g, '')
       .slice(0, 80) || 'story';
 
+  const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      const nextLine = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(nextLine).width <= maxWidth) {
+        currentLine = nextLine;
+      } else {
+        if (currentLine) lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  };
+
+  const loadImage = (src: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+
+  const buildStoryCanvas = async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      throw new Error('Canvas not supported');
+    }
+
+    ctx.fillStyle = '#0b0b0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const imageResponse = await fetch(portraitImage);
+    const imageBlob = await imageResponse.blob();
+    const imageUrl = URL.createObjectURL(imageBlob);
+    const image = await loadImage(imageUrl);
+
+    const targetRatio = canvas.width / canvas.height;
+    const sourceRatio = image.width / image.height;
+    let drawWidth = canvas.width;
+    let drawHeight = canvas.height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (sourceRatio > targetRatio) {
+      drawWidth = image.height * targetRatio;
+      offsetX = (image.width - drawWidth) / 2;
+    } else {
+      drawHeight = image.width / targetRatio;
+      offsetY = (image.height - drawHeight) / 2;
+    }
+
+    ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(imageUrl);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.12)');
+    gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.18)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.88)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillRect(72, 84, 180, 6);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = 'bold 28px Arial, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.fillText(article.category.toUpperCase(), 72, 112);
+
+    if (article.isBreaking) {
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(72, 160, 190, 48);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px Arial, sans-serif';
+      ctx.fillText('BREAKING', 98, 174);
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 68px Georgia, serif';
+    const titleLines = wrapText(ctx, article.title, 936).slice(0, 5);
+    const titleStartY = article.isBreaking ? 242 : 174;
+    titleLines.forEach((line, index) => {
+      ctx.fillText(line, 72, titleStartY + index * 76);
+    });
+
+    ctx.fillStyle = 'rgba(255,255,255,0.90)';
+    ctx.font = '400 34px Arial, sans-serif';
+    const summaryLines = wrapText(ctx, article.summary, 936).slice(0, 4);
+    const summaryStartY = titleStartY + titleLines.length * 76 + 36;
+    summaryLines.forEach((line, index) => {
+      ctx.fillText(line, 72, summaryStartY + index * 44);
+    });
+
+    ctx.fillStyle = 'rgba(255,255,255,0.80)';
+    ctx.font = '700 28px Arial, sans-serif';
+    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 72, 1770);
+
+    ctx.font = '400 24px Arial, sans-serif';
+    ctx.fillText(facebookConfig.pageName, 72, 1812);
+
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Failed to create story image'));
+          return;
+        }
+        resolve(blob);
+      }, 'image/jpeg', 0.95);
+    });
+  };
+
   const handleDownloadStoryImage = () => {
-    const link = document.createElement('a');
-    link.href = portraitImage;
-    link.download = `${slugify(article.title)}-story.jpg`;
-    link.target = '_blank';
-    link.rel = 'noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    buildStoryCanvas()
+      .then((blob) => {
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = `${slugify(article.title)}-story.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        console.warn('Story image generation failed, falling back to the base portrait.', error);
+        const link = document.createElement('a');
+        link.href = portraitImage;
+        link.download = `${slugify(article.title)}-story.jpg`;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
   };
 
   const handleShareToFacebookStory = async () => {
     const shareUrl = window.location.href;
 
     try {
-      const imageResponse = await fetch(portraitImage);
-      const imageBlob = await imageResponse.blob();
-      const file = new File([imageBlob], `${slugify(article.title)}-story.jpg`, { type: imageBlob.type || 'image/jpeg' });
+      const storyBlob = await buildStoryCanvas();
+      const file = new File([storyBlob], `${slugify(article.title)}-story.jpg`, { type: storyBlob.type || 'image/jpeg' });
 
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
