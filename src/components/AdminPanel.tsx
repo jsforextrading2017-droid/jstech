@@ -10,7 +10,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { 
   Loader2, Plus, RefreshCw, Trash2, Wand2, Megaphone, 
-  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban 
+  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban, Key, ShieldCheck 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
@@ -45,6 +45,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   const [isCheckingStatus, setIsCheckingStatus] = React.useState(false);
   const [isTestingMeta, setIsTestingMeta] = React.useState(false);
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
+  const [openaiKey, setOpenaiKey] = React.useState('');
 
   React.useEffect(() => {
     setArticles(storage.getArticles());
@@ -53,6 +54,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
     setAiConfig(storage.getAIConfig());
     setFacebookConfig(storage.getFacebookConfig());
     setMetaConfig(storage.getMetaConfig());
+    setOpenaiKey(localStorage.getItem('nova_openai_key') || '');
     handleCheckStatus();
   }, []);
 
@@ -158,6 +160,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
   const handleSaveAI = () => {
     storage.saveAIConfig(aiConfig);
     toast.success("AI configuration saved.");
+  };
+
+  const handleSaveOpenAIKey = () => {
+    const trimmedKey = openaiKey.trim();
+    if (!trimmedKey) {
+      toast.error("Please enter an OpenAI API key.");
+      return;
+    }
+
+    localStorage.setItem('nova_openai_key', trimmedKey);
+    setOpenaiKey(trimmedKey);
+    handleCheckStatus();
+    toast.success("OpenAI API key saved locally.");
+  };
+
+  const handleClearOpenAIKey = () => {
+    localStorage.removeItem('nova_openai_key');
+    setOpenaiKey('');
+    handleCheckStatus();
+    toast.info("OpenAI API key cleared.");
   };
 
   const handleSaveFacebook = () => {
@@ -472,6 +494,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate }) => {
                         : "Set an OpenAI API key on the server or use Gemini fallback."}
                     </p>
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-6">
+                <div>
+                  <h3 className="text-lg font-bold">OpenAI API Key</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Save a browser-side key here if you want this admin panel to use your own OpenAI account.
+                    It is stored locally in this browser under <code>nova_openai_key</code>.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="openaiKey">OpenAI API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="openaiKey"
+                      type="password"
+                      value={openaiKey}
+                      onChange={(e) => setOpenaiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="pr-10"
+                    />
+                    <Key className="pointer-events-none absolute right-3 top-2.5 text-muted-foreground" size={16} />
+                  </div>
+                  <p className="text-xs text-muted-foreground flex items-center gap-2">
+                    <ShieldCheck size={14} />
+                    The key is only used by this browser to call the AI endpoints.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <Button onClick={handleSaveOpenAIKey} className="gap-2">
+                    <Key size={14} />
+                    Save OpenAI Key
+                  </Button>
+                  <Button variant="outline" onClick={handleClearOpenAIKey}>
+                    Clear Saved Key
+                  </Button>
                 </div>
               </div>
 
