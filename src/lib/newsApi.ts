@@ -20,6 +20,19 @@ const getAuthHeaders = () => {
   return headers;
 };
 
+const parseResponseBody = async <T = Record<string, unknown>>(response: Response): Promise<{ raw: string; data: T }> => {
+  const raw = await response.text();
+  if (!raw.trim()) {
+    return { raw: '', data: {} as T };
+  }
+
+  try {
+    return { raw, data: JSON.parse(raw) as T };
+  } catch {
+    return { raw, data: { raw } as T };
+  }
+};
+
 export async function checkAdminSession(): Promise<{ authenticated: boolean }> {
   const response = await fetch('/api/admin/me', {
     headers: getAuthHeaders(),
@@ -140,10 +153,17 @@ export async function testMetaConnection(metaConfig: MetaConfig): Promise<{
     body: JSON.stringify(metaConfig),
   });
 
-  const raw = await response.text();
-  const data = raw.trim() ? JSON.parse(raw) : {};
+  const { raw, data } = await parseResponseBody<{
+    connected: boolean;
+    pageId?: string;
+    pageName?: string;
+    tokenType?: string;
+    scopes?: string[];
+    message?: string;
+  }>(response);
   if (!response.ok) {
-    throw new Error(data.message || data.error || 'Failed to test Meta connection');
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to test Meta connection'));
   }
 
   return data;
@@ -167,10 +187,10 @@ export async function publishFacebookStory(payload: {
     body: JSON.stringify(payload),
   });
 
-  const raw = await response.text();
-  const data = raw.trim() ? JSON.parse(raw) : {};
+  const { raw, data } = await parseResponseBody<{ published: boolean; result?: unknown }>(response);
   if (!response.ok) {
-    throw new Error(data.message || data.error || raw || 'Failed to publish Facebook story');
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to publish Facebook story'));
   }
 
   return data;
@@ -199,10 +219,10 @@ export async function testFacebookStoryPublish(payload: {
     }),
   });
 
-  const raw = await response.text();
-  const data = raw.trim() ? JSON.parse(raw) : {};
+  const { raw, data } = await parseResponseBody<{ published: boolean; result?: unknown }>(response);
   if (!response.ok) {
-    throw new Error(data.message || data.error || raw || 'Failed to publish Facebook story');
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to publish Facebook story'));
   }
 
   return data;

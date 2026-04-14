@@ -185,6 +185,17 @@ const safeReadJson = async (response: Response) => {
   }
 };
 
+const formatApiError = (context: string, response: Response, data: any) => {
+  const statusText = response.statusText ? ` ${response.statusText}` : '';
+  const upstreamMessage =
+    data?.error?.message ||
+    data?.message ||
+    data?.raw ||
+    (typeof data === 'string' ? data : '');
+  const details = upstreamMessage ? ` - ${upstreamMessage}` : '';
+  return `${context} (HTTP ${response.status}${statusText})${details}`;
+};
+
 const createStoryOverlaySvg = (payload: {
   title: string;
   summary: string;
@@ -308,7 +319,7 @@ const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?
   });
   const uploadData = await safeReadJson(uploadResponse);
   if (!uploadResponse.ok) {
-    throw new Error(uploadData?.error?.message || 'Failed to upload story image.');
+    throw new Error(formatApiError('Failed to upload story image.', uploadResponse, uploadData));
   }
 
   const photoId = uploadData?.id || uploadData?.photo_id;
@@ -325,7 +336,7 @@ const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?
   });
   const storyData = await safeReadJson(storyResponse);
   if (!storyResponse.ok) {
-    throw new Error(storyData?.error?.message || 'Failed to publish Facebook story.');
+    throw new Error(formatApiError('Failed to publish Facebook story.', storyResponse, storyData));
   }
 
   return storyData;
@@ -715,7 +726,7 @@ async function startServer() {
       if (!debugTokenResponse.ok || !debugTokenData?.data?.is_valid) {
         return res.status(400).json({
           connected: false,
-          message: debugTokenData?.error?.message || "Invalid Meta token.",
+          message: formatApiError("Invalid Meta token.", debugTokenResponse, debugTokenData),
           debug: debugTokenData,
         });
       }
@@ -730,7 +741,7 @@ async function startServer() {
       if (!pageResponse.ok) {
         return res.status(400).json({
           connected: false,
-          message: pageData?.error?.message || "Could not load the Facebook Page.",
+          message: formatApiError("Could not load the Facebook Page.", pageResponse, pageData),
           debug: pageData,
         });
       }
