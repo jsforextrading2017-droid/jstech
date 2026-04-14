@@ -1066,6 +1066,29 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/content/reset", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      await Promise.all([
+        setJsonSetting(STORAGE_KEYS.articles, []),
+        setJsonSetting(STORAGE_KEYS.drafts, []),
+      ]);
+
+      return res.json({
+        reset: true,
+        message: 'Articles and drafts cleared.',
+      });
+    } catch (error: any) {
+      console.error("Failed to reset content:", error);
+      return res.status(500).json({
+        reset: false,
+        message: error.message || "Failed to reset content.",
+      });
+    }
+  });
+
   app.put("/api/content/config/public", async (req, res) => {
     const token = await requireAdmin(req, res);
     if (!token) return;

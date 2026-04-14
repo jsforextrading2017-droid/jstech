@@ -175,6 +175,12 @@ export const storage = {
     });
   },
 
+  resetContent: async (): Promise<void> => {
+    await adminRequestJson<{ reset: boolean }>(`/api/content/reset`, {
+      method: 'DELETE',
+    });
+  },
+
   saveAds: async (config: AdConfig): Promise<AdConfig> => {
     const result = await adminRequestJson<{ saved: boolean; ads: AdConfig }>('/api/content/config/public', {
       method: 'PUT',

@@ -241,6 +241,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     toast.info("Article deleted.");
   };
 
+  const handleResetContent = async () => {
+    const confirmed = window.confirm('This will delete all articles and drafts. Continue?');
+    if (!confirmed) return;
+
+    try {
+      await storage.resetContent();
+      setArticles([]);
+      setDrafts([]);
+      onArticlesUpdate();
+      toast.success('Articles and drafts cleared.');
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to clear content.');
+    }
+  };
+
   const handleSaveAds = async () => {
     const saved = await storage.saveAds(adConfig);
     setAdConfig(saved);
@@ -786,6 +802,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
 
                 <Button onClick={handleChangePassword} className="w-full md:w-auto">
                   Update Admin Password
+                </Button>
+              </div>
+
+              <div className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/5 p-6">
+                <div>
+                  <h3 className="text-lg font-bold text-destructive">Clear Content</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Delete every article and draft from the database. This does not touch admin sessions or settings.
+                  </p>
+                </div>
+
+                <Button variant="destructive" onClick={handleResetContent} className="w-full md:w-auto">
+                  Clear Posts and Drafts
                 </Button>
               </div>
 
