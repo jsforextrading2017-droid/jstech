@@ -34,7 +34,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [facebookConfig, setFacebookConfig] = React.useState<FacebookConfig>({
     pageName: 'jshubnetwork',
     storyCtaText: 'Swipe to read',
-    storyLinkLabel: 'Read more',
+    storyLinkLabel: 'Swipe up to read',
   });
   const [metaConfig, setMetaConfig] = React.useState<MetaConfig>({
     appId: '',
@@ -127,6 +127,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
             imageUrl: newArticleData.imageUrl || draft.imageUrl,
             portraitImageUrl: newArticleData.portraitImageUrl || draft.portraitImageUrl,
             storyCtaText: facebookConfig.storyCtaText,
+            storyLinkLabel: facebookConfig.storyLinkLabel,
             pageName: facebookConfig.pageName,
             pageId: metaConfig.pageId,
             pageAccessToken: metaConfig.pageAccessToken,
@@ -341,6 +342,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
         pageAccessToken: metaConfig.pageAccessToken,
         pageName: facebookConfig.pageName,
         storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
       });
       toast.success("Test Facebook Story published.");
     } catch (error) {

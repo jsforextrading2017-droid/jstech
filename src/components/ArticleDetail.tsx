@@ -88,50 +88,80 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack })
     URL.revokeObjectURL(imageUrl);
 
     const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.12)');
-    gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.18)');
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.88)');
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.16)');
+    gradient.addColorStop(0.42, 'rgba(0, 0, 0, 0.08)');
+    gradient.addColorStop(0.72, 'rgba(0, 0, 0, 0.20)');
+    gradient.addColorStop(1, 'rgba(3, 7, 18, 0.96)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.fillRect(72, 84, 180, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.fillRect(72, 76, 160, 8);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    const accent = ctx.createLinearGradient(72, 0, 240, 0);
+    accent.addColorStop(0, '#f97316');
+    accent.addColorStop(1, '#ef4444');
+    ctx.fillStyle = accent;
+    ctx.fillRect(72, 76, 160, 8);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(72, 118, 268, 54);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
     ctx.font = 'bold 28px Arial, sans-serif';
     ctx.textBaseline = 'top';
-    ctx.fillText(article.category.toUpperCase(), 72, 112);
+    ctx.fillText(article.category.toUpperCase(), 96, 149);
 
     if (article.isBreaking) {
       ctx.fillStyle = '#dc2626';
-      ctx.fillRect(72, 160, 190, 48);
+      ctx.fillRect(72, 194, 190, 48);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 24px Arial, sans-serif';
-      ctx.fillText('BREAKING', 98, 174);
+      ctx.fillText('BREAKING', 98, 228);
     }
 
+    ctx.fillStyle = 'rgba(3, 7, 18, 0.64)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(72, 1388, 936, 392, 34);
+    ctx.fill();
+    ctx.stroke();
+
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 68px Georgia, serif';
+    ctx.font = 'bold 64px Georgia, serif';
     const titleLines = wrapText(ctx, article.title, 936).slice(0, 5);
-    const titleStartY = article.isBreaking ? 242 : 174;
+    const titleStartY = article.isBreaking ? 286 : 226;
     titleLines.forEach((line, index) => {
-      ctx.fillText(line, 72, titleStartY + index * 76);
+      ctx.fillText(line, 108, titleStartY + index * 74);
     });
 
     ctx.fillStyle = 'rgba(255,255,255,0.90)';
-    ctx.font = '400 34px Arial, sans-serif';
+    ctx.font = '400 32px Arial, sans-serif';
     const summaryLines = wrapText(ctx, article.summary, 936).slice(0, 4);
-    const summaryStartY = titleStartY + titleLines.length * 76 + 36;
+    const summaryStartY = titleStartY + titleLines.length * 74 + 24;
     summaryLines.forEach((line, index) => {
-      ctx.fillText(line, 72, summaryStartY + index * 44);
+      ctx.fillText(line, 108, summaryStartY + index * 44);
     });
 
-    ctx.fillStyle = 'rgba(255,255,255,0.80)';
-    ctx.font = '700 28px Arial, sans-serif';
-    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 72, 1770);
+    ctx.fillStyle = 'rgba(249,115,22,0.18)';
+    ctx.strokeStyle = 'rgba(249,115,22,0.4)';
+    ctx.beginPath();
+    ctx.roundRect(108, 1736, 378, 56, 18);
+    ctx.fill();
+    ctx.stroke();
 
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 26px Arial, sans-serif';
+    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 132, 1772);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
     ctx.font = '400 24px Arial, sans-serif';
-    ctx.fillText(facebookConfig.pageName, 72, 1812);
+    ctx.fillText(facebookConfig.pageName, 108, 1830);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.70)';
+    ctx.font = '700 22px Arial, sans-serif';
+    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 108, 1868);
 
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {

@@ -111,11 +111,11 @@ export const storage = {
   getFacebookConfig: (): FacebookConfig => {
     const data = localStorage.getItem(FACEBOOK_KEY);
     return data
-      ? JSON.parse(data)
-      : {
+        ? JSON.parse(data)
+        : {
           pageName: 'jshubnetwork',
           storyCtaText: 'Swipe to read',
-          storyLinkLabel: 'Read more',
+          storyLinkLabel: 'Swipe up to read',
         };
   },
 

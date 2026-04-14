@@ -41,6 +41,8 @@ type FacebookStoryPayload = {
   imageUrl?: string;
   portraitImageUrl?: string;
   storyCtaText?: string;
+  storyLinkLabel?: string;
+  articleUrl?: string;
   pageName?: string;
   pageId?: string;
   pageAccessToken?: string;
@@ -201,7 +203,9 @@ const createStoryOverlaySvg = (payload: {
   summary: string;
   category: string;
   storyCtaText: string;
+  storyLinkLabel: string;
   pageName: string;
+  articleUrl?: string;
   isBreaking?: boolean;
 }) => {
   const escape = (value: string) =>
@@ -229,40 +233,51 @@ const createStoryOverlaySvg = (payload: {
     return lines;
   };
 
+  const safeUrl = payload.articleUrl?.trim() ? escape(payload.articleUrl.trim()) : '';
   const titleLines = wrapLine(payload.title, 24).slice(0, 5);
   const summaryLines = wrapLine(payload.summary, 38).slice(0, 5);
-  const titleStartY = payload.isBreaking ? 248 : 188;
-  const summaryStartY = titleStartY + titleLines.length * 78 + 28;
+  const titleStartY = payload.isBreaking ? 286 : 226;
+  const summaryStartY = titleStartY + titleLines.length * 74 + 24;
 
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
       <defs>
         <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="rgba(0,0,0,0.1)" />
-          <stop offset="55%" stop-color="rgba(0,0,0,0.2)" />
-          <stop offset="100%" stop-color="rgba(0,0,0,0.88)" />
+          <stop offset="0%" stop-color="rgba(0,0,0,0.16)" />
+          <stop offset="42%" stop-color="rgba(0,0,0,0.08)" />
+          <stop offset="72%" stop-color="rgba(0,0,0,0.20)" />
+          <stop offset="100%" stop-color="rgba(3,7,18,0.96)" />
+        </linearGradient>
+        <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stop-color="#f97316" />
+          <stop offset="100%" stop-color="#ef4444" />
         </linearGradient>
       </defs>
-      <rect width="1080" height="1920" fill="#0b0b0f" />
+      <rect width="1080" height="1920" fill="#08111d" />
       <rect width="1080" height="1920" fill="url(#fade)" />
-      <rect x="72" y="84" width="180" height="6" rx="3" fill="rgba(255,255,255,0.92)" />
-      <text x="72" y="138" fill="rgba(255,255,255,0.76)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
-      ${payload.isBreaking ? `<rect x="72" y="160" width="190" height="48" rx="10" fill="#dc2626" />` : ''}
-      ${payload.isBreaking ? `<text x="98" y="194" fill="#ffffff" font-size="24" font-family="Arial, Helvetica, sans-serif" font-weight="700">BREAKING</text>` : ''}
+      <rect x="72" y="76" width="160" height="8" rx="4" fill="url(#accent)" />
+      <rect x="72" y="118" width="268" height="54" rx="16" fill="rgba(255,255,255,0.10)" />
+      <text x="96" y="155" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
+      ${payload.isBreaking ? `<rect x="72" y="194" width="190" height="48" rx="10" fill="#dc2626" />` : ''}
+      ${payload.isBreaking ? `<text x="98" y="228" fill="#ffffff" font-size="24" font-family="Arial, Helvetica, sans-serif" font-weight="700">BREAKING</text>` : ''}
+      <rect x="72" y="1388" width="936" height="392" rx="34" fill="rgba(3,7,18,0.64)" stroke="rgba(255,255,255,0.12)" />
       ${titleLines
         .map(
           (line, index) =>
-            `<text x="72" y="${titleStartY + index * 78}" fill="#ffffff" font-size="68" font-family="Georgia, 'Times New Roman', serif" font-weight="700">${escape(line)}</text>`
+            `<text x="108" y="${titleStartY + index * 74}" fill="#ffffff" font-size="64" font-family="Georgia, 'Times New Roman', serif" font-weight="700">${escape(line)}</text>`
         )
         .join('')}
       ${summaryLines
         .map(
           (line, index) =>
-            `<text x="72" y="${summaryStartY + index * 46}" fill="rgba(255,255,255,0.9)" font-size="34" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
+            `<text x="108" y="${summaryStartY + index * 44}" fill="rgba(255,255,255,0.9)" font-size="32" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
         )
         .join('')}
-      <text x="72" y="1770" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.storyCtaText.toUpperCase())}</text>
-      <text x="72" y="1812" fill="rgba(255,255,255,0.8)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
+      <rect x="108" y="1736" width="378" height="56" rx="18" fill="rgba(249,115,22,0.18)" stroke="rgba(249,115,22,0.40)" />
+      <text x="132" y="1772" fill="#ffffff" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
+      <text x="108" y="1830" fill="rgba(255,255,255,0.82)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
+      <text x="108" y="1868" fill="rgba(255,255,255,0.70)" font-size="22" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
+      ${safeUrl ? `<text x="108" y="1902" fill="rgba(255,255,255,0.52)" font-size="18" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
     </svg>
   `;
 };
@@ -279,14 +294,18 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
   }
 
   const bgBuffer = Buffer.from(await imageResponse.arrayBuffer());
-  const base = sharp(bgBuffer).resize(1080, 1920, { fit: 'cover' });
+  const base = sharp(bgBuffer)
+    .resize(1080, 1920, { fit: 'cover' })
+    .modulate({ brightness: 1.08, saturation: 1.08 });
   const overlay = Buffer.from(
     createStoryOverlaySvg({
       title: payload.title || 'Story',
       summary: payload.summary || '',
       category: payload.category || 'News',
       storyCtaText: payload.storyCtaText || 'Swipe to read',
+      storyLinkLabel: payload.storyLinkLabel || 'Swipe up to read',
       pageName: payload.pageName || 'jshubnetwork',
+      articleUrl: payload.articleUrl,
       isBreaking: payload.isBreaking,
     })
   );

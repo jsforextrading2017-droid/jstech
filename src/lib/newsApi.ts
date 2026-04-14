@@ -176,9 +176,11 @@ export async function publishFacebookStory(payload: {
   imageUrl: string;
   portraitImageUrl?: string;
   storyCtaText: string;
+  storyLinkLabel: string;
   pageName: string;
   pageId: string;
   pageAccessToken: string;
+  articleUrl?: string;
   isBreaking?: boolean;
 }): Promise<{ published: boolean; result?: unknown }> {
   const response = await fetch('/api/meta/publish-story', {
@@ -201,6 +203,7 @@ export async function testFacebookStoryPublish(payload: {
   pageAccessToken: string;
   pageName: string;
   storyCtaText: string;
+  storyLinkLabel: string;
 }): Promise<{ published: boolean; result?: unknown }> {
   const response = await fetch('/api/meta/publish-story', {
     method: 'POST',
@@ -212,6 +215,7 @@ export async function testFacebookStoryPublish(payload: {
       imageUrl: 'https://picsum.photos/seed/facebook-story-test/1024/1792',
       portraitImageUrl: 'https://picsum.photos/seed/facebook-story-test-portrait/1024/1792',
       storyCtaText: payload.storyCtaText,
+      storyLinkLabel: payload.storyLinkLabel,
       pageName: payload.pageName,
       pageId: payload.pageId,
       pageAccessToken: payload.pageAccessToken,
