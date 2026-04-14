@@ -167,9 +167,10 @@ export async function publishFacebookStory(payload: {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
+  const raw = await response.text();
+  const data = raw.trim() ? JSON.parse(raw) : {};
   if (!response.ok) {
-    throw new Error(data.message || data.error || 'Failed to publish Facebook story');
+    throw new Error(data.message || data.error || raw || 'Failed to publish Facebook story');
   }
 
   return data;
@@ -198,9 +199,10 @@ export async function testFacebookStoryPublish(payload: {
     }),
   });
 
-  const data = await response.json();
+  const raw = await response.text();
+  const data = raw.trim() ? JSON.parse(raw) : {};
   if (!response.ok) {
-    throw new Error(data.message || data.error || 'Failed to publish Facebook story');
+    throw new Error(data.message || data.error || raw || 'Failed to publish Facebook story');
   }
 
   return data;

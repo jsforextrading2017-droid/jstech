@@ -790,6 +790,7 @@ async function startServer() {
       return res.status(500).json({
         published: false,
         message: error.message || "Facebook story publish failed.",
+        error: error.message || "Facebook story publish failed.",
       });
     }
   });
