@@ -174,3 +174,34 @@ export async function publishFacebookStory(payload: {
 
   return data;
 }
+
+export async function testFacebookStoryPublish(payload: {
+  pageId: string;
+  pageAccessToken: string;
+  pageName: string;
+  storyCtaText: string;
+}): Promise<{ published: boolean; result?: unknown }> {
+  const response = await fetch('/api/meta/publish-story', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      title: 'Facebook Story Test',
+      summary: 'This is a test story publish from the admin panel.',
+      category: 'Facts',
+      imageUrl: 'https://picsum.photos/seed/facebook-story-test/1024/1792',
+      portraitImageUrl: 'https://picsum.photos/seed/facebook-story-test-portrait/1024/1792',
+      storyCtaText: payload.storyCtaText,
+      pageName: payload.pageName,
+      pageId: payload.pageId,
+      pageAccessToken: payload.pageAccessToken,
+      isBreaking: false,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to publish Facebook story');
+  }
+
+  return data;
+}

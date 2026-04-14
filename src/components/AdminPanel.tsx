@@ -1,5 +1,5 @@
 import React from 'react';
-import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testMetaConnection, logoutAdmin, publishFacebookStory } from '../lib/newsApi';
+import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testFacebookStoryPublish, testMetaConnection, logoutAdmin, publishFacebookStory } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -46,6 +46,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [isCheckingStatus, setIsCheckingStatus] = React.useState(false);
   const [isTestingMeta, setIsTestingMeta] = React.useState(false);
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
+  const [isPublishingTest, setIsPublishingTest] = React.useState(false);
   const [openaiKey, setOpenaiKey] = React.useState('');
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -324,6 +325,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       });
     } finally {
       setIsTestingMeta(false);
+    }
+  };
+
+  const handleTestFacebookPublish = async () => {
+    if (!metaConfig.pageId.trim() || !metaConfig.pageAccessToken.trim()) {
+      toast.error("Add your Meta Page ID and Page Access Token first.");
+      return;
+    }
+
+    setIsPublishingTest(true);
+    try {
+      await testFacebookStoryPublish({
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        pageName: facebookConfig.pageName,
+        storyCtaText: facebookConfig.storyCtaText,
+      });
+      toast.success("Test Facebook Story published.");
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : "Test Facebook Story publish failed.");
+    } finally {
+      setIsPublishingTest(false);
     }
   };
 
@@ -894,6 +918,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                 <Button variant="outline" onClick={handleTestMeta} disabled={isTestingMeta} className="w-full md:w-auto gap-2">
                   {isTestingMeta ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
                   Test Meta Connection
+                </Button>
+
+                <Button variant="secondary" onClick={handleTestFacebookPublish} disabled={isPublishingTest} className="w-full md:w-auto gap-2">
+                  {isPublishingTest ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                  Test Facebook Story Publish
                 </Button>
 
                 {metaTestResult && (
