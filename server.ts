@@ -290,37 +290,25 @@ const formatApiError = (context: string, response: Response, data: any) => {
 const readJsonSetting = async <T>(key: string, fallback: T): Promise<T> =>
   getJsonSetting<T>(key, fallback);
 
-const isDataUri = (value: string) => value.startsWith('data:');
+const isEmbeddedImage = (value?: string) => !!value?.startsWith('data:');
 
-const toDataUri = async (value: string): Promise<string> => {
-  const trimmed = value.trim();
-  if (!trimmed || isDataUri(trimmed) || (!trimmed.startsWith('http://') && !trimmed.startsWith('https://'))) {
-    return value;
-  }
-
-  try {
-    const response = await fetch(trimmed);
-    if (!response.ok) {
-      return value;
-    }
-
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return `data:${contentType};base64,${buffer.toString('base64')}`;
-  } catch {
-    return value;
-  }
+const fallbackImageUrl = (title: string, suffix = '') => {
+  const seed = encodeURIComponent(`${slugify(title || 'story')}${suffix}`);
+  return `https://picsum.photos/seed/${seed}/1200/800`;
 };
 
-const normalizeImageFields = async <T extends { imageUrl?: string; portraitImageUrl?: string }>(record: T): Promise<T> => {
-  const normalized: T = { ...record };
-  if (normalized.imageUrl) {
-    normalized.imageUrl = await toDataUri(normalized.imageUrl);
-  }
-  if (normalized.portraitImageUrl) {
-    normalized.portraitImageUrl = await toDataUri(normalized.portraitImageUrl);
-  }
-  return normalized;
+const fallbackPortraitUrl = (title: string) => {
+  const seed = encodeURIComponent(`${slugify(title || 'story')}-portrait`);
+  return `https://picsum.photos/seed/${seed}/1024/1792`;
+};
+
+const sanitizeStoredImageFields = <T extends { title?: string; id?: string; imageUrl?: string; portraitImageUrl?: string }>(record: T): T => {
+  const title = record.title || record.id || 'story';
+  return {
+    ...record,
+    imageUrl: isEmbeddedImage(record.imageUrl) ? fallbackImageUrl(title) : record.imageUrl,
+    portraitImageUrl: isEmbeddedImage(record.portraitImageUrl) ? fallbackPortraitUrl(title) : record.portraitImageUrl,
+  };
 };
 
 const loadPublicState = async () => ({
@@ -360,6 +348,25 @@ const seedContentIfNeeded = async () => {
 
   if (!adminState.metaConfig || Object.keys(adminState.metaConfig).length === 0) {
     await setJsonSetting(STORAGE_KEYS.meta, DEFAULT_META);
+  }
+};
+
+const cleanupEmbeddedImages = async () => {
+  const publicState = await loadPublicState();
+  const adminState = await loadAdminState();
+
+  const cleanedArticles = publicState.articles.map((article) => sanitizeStoredImageFields(article));
+  const cleanedDrafts = adminState.drafts.map((draft) => sanitizeStoredImageFields(draft));
+
+  const articlesChanged = JSON.stringify(cleanedArticles) !== JSON.stringify(publicState.articles);
+  const draftsChanged = JSON.stringify(cleanedDrafts) !== JSON.stringify(adminState.drafts);
+
+  if (articlesChanged) {
+    await setJsonSetting(STORAGE_KEYS.articles, cleanedArticles);
+  }
+
+  if (draftsChanged) {
+    await setJsonSetting(STORAGE_KEYS.drafts, cleanedDrafts);
   }
 };
 
@@ -541,6 +548,9 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
+
+  await seedContentIfNeeded();
+  await cleanupEmbeddedImages();
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
   const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -921,14 +931,14 @@ async function startServer() {
         return res.status(400).json({ saved: false, message: "Missing draft id." });
       }
 
-      const normalized = await normalizeImageFields(draft);
       const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
-      const nextDrafts = drafts.some((item) => item.id === normalized.id)
-        ? drafts.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
-        : [normalized, ...drafts];
+      const safeDraft = sanitizeStoredImageFields(draft);
+      const nextDrafts = drafts.some((item) => item.id === safeDraft.id)
+        ? drafts.map((item) => (item.id === safeDraft.id ? { ...item, ...safeDraft } : item))
+        : [safeDraft, ...drafts];
 
       await setJsonSetting(STORAGE_KEYS.drafts, nextDrafts);
-      return res.json({ saved: true, draft: normalized });
+      return res.json({ saved: true, draft: safeDraft });
     } catch (error: any) {
       console.error("Failed to save draft:", error);
       return res.status(500).json({
@@ -948,14 +958,14 @@ async function startServer() {
         return res.status(400).json({ saved: false, message: "Missing article id." });
       }
 
-      const normalized = await normalizeImageFields(article);
       const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
-      const nextArticles = articles.some((item) => item.id === normalized.id)
-        ? articles.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
-        : [normalized, ...articles];
+      const safeArticle = sanitizeStoredImageFields(article);
+      const nextArticles = articles.some((item) => item.id === safeArticle.id)
+        ? articles.map((item) => (item.id === safeArticle.id ? { ...item, ...safeArticle } : item))
+        : [safeArticle, ...articles];
 
       await setJsonSetting(STORAGE_KEYS.articles, nextArticles);
-      return res.json({ saved: true, article: normalized });
+      return res.json({ saved: true, article: safeArticle });
     } catch (error: any) {
       console.error("Failed to save article:", error);
       return res.status(500).json({
@@ -996,38 +1006,38 @@ async function startServer() {
         return res.status(404).json({ published: false, message: "Draft not found." });
       }
 
-      const normalizedDraft = await normalizeImageFields(draft);
       const article: ArticleRecord = {
-        id: normalizedDraft.id,
-        title: normalizedDraft.title,
-        summary: normalizedDraft.summary,
-        content: normalizedDraft.content,
-        category: normalizedDraft.category,
-        author: normalizedDraft.author,
+        id: draft.id,
+        title: draft.title,
+        summary: draft.summary,
+        content: draft.content,
+        category: draft.category,
+        author: draft.author,
         publishedAt: new Date().toISOString(),
-        imageUrl: normalizedDraft.imageUrl,
-        portraitImageUrl: normalizedDraft.portraitImageUrl,
-        imageSubject: normalizedDraft.imageSubject,
-        isBreaking: normalizedDraft.isBreaking,
-        provider: normalizedDraft.provider,
-        warning: normalizedDraft.warning,
-        facebookStoryStatus: normalizedDraft.facebookStoryStatus,
-        facebookStoryPublishedAt: normalizedDraft.facebookStoryPublishedAt,
-        facebookStoryError: normalizedDraft.facebookStoryError,
-        facebookStoryPostId: normalizedDraft.facebookStoryPostId,
+        imageUrl: draft.imageUrl,
+        portraitImageUrl: draft.portraitImageUrl,
+        imageSubject: draft.imageSubject,
+        isBreaking: draft.isBreaking,
+        provider: draft.provider,
+        warning: draft.warning,
+        facebookStoryStatus: draft.facebookStoryStatus,
+        facebookStoryPublishedAt: draft.facebookStoryPublishedAt,
+        facebookStoryError: draft.facebookStoryError,
+        facebookStoryPostId: draft.facebookStoryPostId,
       };
 
       const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
-      const nextArticles = articles.some((item) => item.id === article.id)
-        ? articles.map((item) => (item.id === article.id ? article : item))
-        : [article, ...articles];
+      const safeArticle = sanitizeStoredImageFields(article);
+      const nextArticles = articles.some((item) => item.id === safeArticle.id)
+        ? articles.map((item) => (item.id === safeArticle.id ? safeArticle : item))
+        : [safeArticle, ...articles];
 
       await Promise.all([
         setJsonSetting(STORAGE_KEYS.articles, nextArticles),
         setJsonSetting(STORAGE_KEYS.drafts, drafts.filter((item) => item.id !== id)),
       ]);
 
-      return res.json({ published: true, article });
+      return res.json({ published: true, article: safeArticle });
     } catch (error: any) {
       console.error("Failed to publish draft:", error);
       return res.status(500).json({
