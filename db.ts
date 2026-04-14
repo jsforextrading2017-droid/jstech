@@ -54,6 +54,19 @@ export const getSetting = async (key: string): Promise<string | null> => {
   return value;
 };
 
+export const getJsonSetting = async <T>(key: string, fallback: T): Promise<T> => {
+  const stored = await getSetting(key);
+  if (!stored) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(stored) as T;
+  } catch {
+    return fallback;
+  }
+};
+
 export const setSetting = async (key: string, value: string): Promise<void> => {
   if (!pool) {
     throw new Error('DATABASE_URL is not configured');
@@ -70,6 +83,10 @@ export const setSetting = async (key: string, value: string): Promise<void> => {
       [key, value]
     );
   });
+};
+
+export const setJsonSetting = async <T>(key: string, value: T): Promise<void> => {
+  await setSetting(key, JSON.stringify(value));
 };
 
 export const deleteSetting = async (key: string): Promise<void> => {

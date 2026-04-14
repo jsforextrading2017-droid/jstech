@@ -6,7 +6,7 @@ import { ArticleDetail } from './components/ArticleDetail';
 import { AdBanner } from './components/AdBanner';
 import { storage } from './lib/storage';
 import { checkAdminSession, loginAdmin } from './lib/newsApi';
-import { Article } from './types';
+import { AdConfig, Article, FacebookConfig } from './types';
 import { Toaster } from './components/ui/sonner';
 import { Separator } from './components/ui/separator';
 import { Badge } from './components/ui/badge';
@@ -27,12 +27,28 @@ export default function App() {
   const [isAdminLoggingIn, setIsAdminLoggingIn] = React.useState(false);
   const [selectedArticle, setSelectedArticle] = React.useState<Article | null>(null);
   const [articles, setArticles] = React.useState<Article[]>([]);
+  const [adConfig, setAdConfig] = React.useState<AdConfig>({ adsenseCode: '', adsKeeperCode: '', showAds: false });
+  const [facebookConfig, setFacebookConfig] = React.useState<FacebookConfig>({
+    pageName: 'jshubnetwork',
+    storyCtaText: 'Swipe to read',
+    storyLinkLabel: 'Swipe up to read',
+  });
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(null);
   const sections = ['Tech', 'Travel', 'Animal', 'Facts', 'Cars', 'Building Homes'] as const;
 
   React.useEffect(() => {
-    storage.seedInitialData();
-    setArticles(storage.getArticles());
+    const loadState = async () => {
+      try {
+        const publicState = await storage.loadPublicState();
+        setArticles(publicState.articles);
+        setAdConfig(publicState.ads);
+        setFacebookConfig(publicState.facebookConfig);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    loadState();
   }, []);
 
   React.useEffect(() => {
@@ -94,7 +110,15 @@ export default function App() {
   }, [articles]);
 
   const refreshArticles = () => {
-    setArticles(storage.getArticles());
+    storage.loadPublicState()
+      .then((publicState) => {
+        setArticles(publicState.articles);
+        setAdConfig(publicState.ads);
+        setFacebookConfig(publicState.facebookConfig);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
   };
 
   const navigateToView = (nextView: 'news' | 'admin') => {
@@ -162,6 +186,8 @@ export default function App() {
         {selectedArticle ? (
           <ArticleDetail
             article={selectedArticle}
+            adConfig={adConfig}
+            facebookConfig={facebookConfig}
             onBack={() => {
               window.history.pushState({}, '', '/');
               setSelectedArticle(null);
@@ -353,7 +379,7 @@ export default function App() {
               </motion.aside>
               </section>
 
-              <AdBanner type="adsense" className="mb-14" />
+              <AdBanner type="adsense" adConfig={adConfig} className="mb-14" />
 
               <section className="mb-16">
                 <div className="mb-6 flex items-end justify-between gap-4">
@@ -472,7 +498,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <AdBanner type="adskeeper" />
+                  <AdBanner type="adskeeper" adConfig={adConfig} />
                 </aside>
               </section>
 

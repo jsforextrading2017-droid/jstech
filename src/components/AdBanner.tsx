@@ -1,13 +1,13 @@
 import React from 'react';
-import { storage } from '../lib/storage';
+import { AdConfig } from '../types';
 
 interface AdBannerProps {
   type: 'adsense' | 'adskeeper';
+  adConfig: AdConfig;
   className?: string;
 }
 
-export const AdBanner: React.FC<AdBannerProps> = ({ type, className = '' }) => {
-  const adConfig = storage.getAds();
+export const AdBanner: React.FC<AdBannerProps> = ({ type, adConfig, className = '' }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {

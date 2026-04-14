@@ -1,170 +1,209 @@
 import { Article, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from "../types";
 
-const STORAGE_KEY = 'nova_news_articles';
-const DRAFTS_KEY = 'nova_news_drafts';
-const ADS_KEY = 'nova_news_ads';
-const AI_KEY = 'nova_news_ai';
-const FACEBOOK_KEY = 'nova_news_facebook';
-const META_KEY = 'nova_news_meta';
+const LEGACY_KEYS = {
+  articles: 'nova_news_articles',
+  drafts: 'nova_news_drafts',
+  ads: 'nova_news_ads',
+  ai: 'nova_news_ai',
+  facebook: 'nova_news_facebook',
+  meta: 'nova_news_meta',
+  migrated: 'nova_news_storage_migrated_to_db',
+} as const;
+
+type PublicState = {
+  articles: Article[];
+  ads: AdConfig;
+  aiConfig: AiConfig;
+  facebookConfig: FacebookConfig;
+};
+
+type AdminState = {
+  drafts: DraftArticle[];
+  metaConfig: MetaConfig;
+};
+
+const jsonHeaders = {
+  'Content-Type': 'application/json',
+};
+
+const getAuthHeaders = () => {
+  const headers: Record<string, string> = { ...jsonHeaders };
+  const token = localStorage.getItem('nova_admin_session_token');
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+const requestJson = async <T>(response: Response): Promise<T> => {
+  const raw = await response.text();
+  const data = raw.trim() ? JSON.parse(raw) : {};
+  if (!response.ok) {
+    throw new Error(data.message || data.error || raw || 'Request failed');
+  }
+  return data as T;
+};
+
+const adminRequestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      ...getAuthHeaders(),
+      ...(init?.headers || {}),
+    },
+  });
+  return requestJson<T>(response);
+};
+
+const publicRequestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      ...jsonHeaders,
+      ...(init?.headers || {}),
+    },
+  });
+  return requestJson<T>(response);
+};
 
 export const storage = {
-  getArticles: (): Article[] => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  },
-  
-  saveArticle: (article: Article) => {
-    const articles = storage.getArticles();
-    const updated = [article, ...articles];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  },
-
-  updateArticle: (id: string, updater: (article: Article) => Article) => {
-    const articles = storage.getArticles();
-    const updated = articles.map((article) => (article.id === id ? updater(article) : article));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  },
-
-  deleteArticle: (id: string) => {
-    const articles = storage.getArticles();
-    const updated = articles.filter(a => a.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  },
-
-  getDrafts: (): DraftArticle[] => {
-    const data = localStorage.getItem(DRAFTS_KEY);
-    return data ? JSON.parse(data) : [];
-  },
-
-  saveDraft: (draft: DraftArticle) => {
-    const drafts = storage.getDrafts();
-    const updated = [draft, ...drafts];
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated));
-  },
-
-  updateDraft: (id: string, updater: (draft: DraftArticle) => DraftArticle) => {
-    const drafts = storage.getDrafts();
-    const updated = drafts.map((draft) => (draft.id === id ? updater(draft) : draft));
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated));
-  },
-
-  deleteDraft: (id: string) => {
-    const drafts = storage.getDrafts();
-    const updated = drafts.filter(d => d.id !== id);
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated));
-  },
-
-  publishDraft: (id: string) => {
-    const drafts = storage.getDrafts();
-    const draft = drafts.find(d => d.id === id);
-    if (!draft) return null;
-
-    const article: Article = {
-        id: draft.id,
-        title: draft.title,
-        summary: draft.summary,
-        content: draft.content,
-        category: draft.category,
-        author: draft.author,
-        publishedAt: new Date().toISOString(),
-        imageUrl: draft.imageUrl,
-        portraitImageUrl: draft.portraitImageUrl,
-        imageSubject: draft.imageSubject,
-        isBreaking: draft.isBreaking,
-        provider: draft.provider,
-        warning: draft.warning,
-        facebookStoryStatus: draft.facebookStoryStatus,
-        facebookStoryPublishedAt: draft.facebookStoryPublishedAt,
-        facebookStoryError: draft.facebookStoryError,
-        facebookStoryPostId: draft.facebookStoryPostId,
-      };
-
-    storage.saveArticle(article);
-    storage.deleteDraft(id);
-    return article;
-  },
-
-  getAds: (): AdConfig => {
-    const data = localStorage.getItem(ADS_KEY);
-    return data ? JSON.parse(data) : { adsenseCode: '', adsKeeperCode: '', showAds: false };
-  },
-
-  saveAds: (config: AdConfig) => {
-    localStorage.setItem(ADS_KEY, JSON.stringify(config));
-  },
-
-  getAIConfig: (): AiConfig => {
-    const data = localStorage.getItem(AI_KEY);
-    return data
-      ? JSON.parse(data)
-      : {
-          ctaText: 'Read the full story',
-          tone: 'bold',
-          imageStyle: 'editorial',
-        };
-  },
-
-  saveAIConfig: (config: AiConfig) => {
-    localStorage.setItem(AI_KEY, JSON.stringify(config));
-  },
-
-  getFacebookConfig: (): FacebookConfig => {
-    const data = localStorage.getItem(FACEBOOK_KEY);
-    return data
-        ? JSON.parse(data)
-        : {
-          pageName: 'jshubnetwork',
-          storyCtaText: 'Swipe to read',
-          storyLinkLabel: 'Swipe up to read',
-        };
-  },
-
-  saveFacebookConfig: (config: FacebookConfig) => {
-    localStorage.setItem(FACEBOOK_KEY, JSON.stringify(config));
-  },
-
-  getMetaConfig: (): MetaConfig => {
-    const data = localStorage.getItem(META_KEY);
-    return data
-      ? JSON.parse(data)
-      : {
-          appId: '',
-          appSecret: '',
-          pageId: '',
-          pageAccessToken: '',
-        };
-  },
-
-  saveMetaConfig: (config: MetaConfig) => {
-    localStorage.setItem(META_KEY, JSON.stringify(config));
-  },
-
-  seedInitialData: () => {
-    if (storage.getArticles().length === 0) {
-      const initial: Article[] = [
-        {
-          id: '1',
-          title: 'AI Breakthrough Reshapes the Tech Industry',
-          summary: 'A new wave of AI tools is changing how startups build, test, and launch products.',
-          content: 'A major shift is underway in the technology sector as AI tools become central to product development, design, and operations...',
-          category: 'Tech',
-          author: 'Dr. Elena Vance',
-          publishedAt: new Date().toISOString(),
-          imageUrl: 'https://picsum.photos/seed/tech/1200/800',
-          isBreaking: true
-        },
-        {
-          id: '2',
-          title: 'Travel Trends Shift as Remote Work Changes How People Explore',
-          summary: 'More travelers are booking longer stays, blending work, leisure, and local experiences.',
-          content: 'The travel industry is seeing a structural shift as remote work continues to reshape how and where people take vacations...',
-          category: 'Travel',
-          author: 'Marcus Thorne',
-          publishedAt: new Date(Date.now() - 3600000).toISOString(),
-          imageUrl: 'https://picsum.photos/seed/travel/1200/800'
-        }
-      ];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+  migrateLegacyLocalStorage: async (): Promise<void> => {
+    if (localStorage.getItem(LEGACY_KEYS.migrated)) {
+      return;
     }
-  }
+
+    const legacyArticlesRaw = localStorage.getItem(LEGACY_KEYS.articles);
+    const legacyDraftsRaw = localStorage.getItem(LEGACY_KEYS.drafts);
+    const legacyAdsRaw = localStorage.getItem(LEGACY_KEYS.ads);
+    const legacyAiRaw = localStorage.getItem(LEGACY_KEYS.ai);
+    const legacyFacebookRaw = localStorage.getItem(LEGACY_KEYS.facebook);
+    const legacyMetaRaw = localStorage.getItem(LEGACY_KEYS.meta);
+
+    if (!legacyArticlesRaw && !legacyDraftsRaw && !legacyAdsRaw && !legacyAiRaw && !legacyFacebookRaw && !legacyMetaRaw) {
+      localStorage.setItem(LEGACY_KEYS.migrated, 'true');
+      return;
+    }
+
+    const parse = <T,>(raw: string | null): T | null => {
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    };
+
+    const legacyArticles = parse<Article[]>(legacyArticlesRaw) || [];
+    const legacyDrafts = parse<DraftArticle[]>(legacyDraftsRaw) || [];
+    const legacyAds = parse<AdConfig | null>(legacyAdsRaw);
+    const legacyAi = parse<AiConfig | null>(legacyAiRaw);
+    const legacyFacebook = parse<FacebookConfig | null>(legacyFacebookRaw);
+    const legacyMeta = parse<MetaConfig | null>(legacyMetaRaw);
+
+    for (const article of legacyArticles) {
+      await storage.saveArticle(article);
+    }
+
+    for (const draft of legacyDrafts) {
+      await storage.saveDraft(draft);
+    }
+
+    if (legacyAds) {
+      await storage.saveAds(legacyAds);
+    }
+
+    if (legacyAi) {
+      await storage.saveAIConfig(legacyAi);
+    }
+
+    if (legacyFacebook) {
+      await storage.saveFacebookConfig(legacyFacebook);
+    }
+
+    if (legacyMeta) {
+      await storage.saveMetaConfig(legacyMeta);
+    }
+
+    Object.values(LEGACY_KEYS).forEach((key) => {
+      if (key !== LEGACY_KEYS.migrated) {
+        localStorage.removeItem(key);
+      }
+    });
+    localStorage.setItem(LEGACY_KEYS.migrated, 'true');
+  },
+
+  loadPublicState: async (): Promise<PublicState> => {
+    return publicRequestJson<PublicState>('/api/content/public');
+  },
+
+  loadAdminState: async (): Promise<AdminState> => {
+    return adminRequestJson<AdminState>('/api/content/admin');
+  },
+
+  saveDraft: async (draft: DraftArticle): Promise<DraftArticle> => {
+    const result = await adminRequestJson<{ draft: DraftArticle }>('/api/content/drafts', {
+      method: 'POST',
+      body: JSON.stringify(draft),
+    });
+    return result.draft;
+  },
+
+  saveArticle: async (article: Article): Promise<Article> => {
+    const result = await adminRequestJson<{ saved: boolean; article: Article }>('/api/content/articles', {
+      method: 'POST',
+      body: JSON.stringify(article),
+    });
+    return result.article;
+  },
+
+  publishDraft: async (id: string): Promise<Article | null> => {
+    const result = await adminRequestJson<{ published: boolean; article?: Article }>(`/api/content/drafts/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+    });
+    return result.article || null;
+  },
+
+  deleteDraft: async (id: string): Promise<void> => {
+    await adminRequestJson<{ deleted: boolean }>(`/api/content/drafts/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  deleteArticle: async (id: string): Promise<void> => {
+    await adminRequestJson<{ deleted: boolean }>(`/api/content/articles/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  saveAds: async (config: AdConfig): Promise<AdConfig> => {
+    const result = await adminRequestJson<{ saved: boolean; ads: AdConfig }>('/api/content/config/public', {
+      method: 'PUT',
+      body: JSON.stringify({ ads: config }),
+    });
+    return result.ads;
+  },
+
+  saveAIConfig: async (config: AiConfig): Promise<AiConfig> => {
+    const result = await adminRequestJson<{ saved: boolean; aiConfig: AiConfig }>('/api/content/config/public', {
+      method: 'PUT',
+      body: JSON.stringify({ aiConfig: config }),
+    });
+    return result.aiConfig;
+  },
+
+  saveFacebookConfig: async (config: FacebookConfig): Promise<FacebookConfig> => {
+    const result = await adminRequestJson<{ saved: boolean; facebookConfig: FacebookConfig }>('/api/content/config/public', {
+      method: 'PUT',
+      body: JSON.stringify({ facebookConfig: config }),
+    });
+    return result.facebookConfig;
+  },
+
+  saveMetaConfig: async (config: MetaConfig): Promise<MetaConfig> => {
+    const result = await adminRequestJson<{ saved: boolean; metaConfig: MetaConfig }>('/api/content/config/meta', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+    return result.metaConfig;
+  },
 };

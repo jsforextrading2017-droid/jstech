@@ -1,6 +1,5 @@
 import React from 'react';
-import { Article } from '../types';
-import { storage } from '../lib/storage';
+import { Article, AdConfig, FacebookConfig } from '../types';
 import { Button } from './ui/button';
 import { ArrowLeft, Share2, Bookmark, Clock, User, Download, Facebook, Copy } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -9,12 +8,13 @@ import { AdBanner } from './AdBanner';
 
 interface ArticleDetailProps {
   article: Article;
+  adConfig: AdConfig;
+  facebookConfig: FacebookConfig;
   onBack: () => void;
 }
 
-export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack }) => {
+export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig, facebookConfig, onBack }) => {
   const portraitImage = article.portraitImageUrl || article.imageUrl;
-  const facebookConfig = storage.getFacebookConfig();
 
   const slugify = (value: string) =>
     value
@@ -64,10 +64,16 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack })
     ctx.fillStyle = '#0b0b0f';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const imageResponse = await fetch(portraitImage);
-    const imageBlob = await imageResponse.blob();
-    const imageUrl = URL.createObjectURL(imageBlob);
-    const image = await loadImage(imageUrl);
+    let imageSource = portraitImage;
+    let objectUrl: string | null = null;
+    if (!portraitImage.startsWith('data:')) {
+      const imageResponse = await fetch(portraitImage);
+      const imageBlob = await imageResponse.blob();
+      objectUrl = URL.createObjectURL(imageBlob);
+      imageSource = objectUrl;
+    }
+
+    const image = await loadImage(imageSource);
 
     const targetRatio = canvas.width / canvas.height;
     const sourceRatio = image.width / image.height;
@@ -85,7 +91,9 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack })
     }
 
     ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(imageUrl);
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+    }
 
     const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     gradient.addColorStop(0, 'rgba(0, 0, 0, 0.16)');
@@ -361,13 +369,13 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, onBack })
             </div>
           </div>
 
-          <AdBanner type="adsense" className="mb-12" />
+          <AdBanner type="adsense" adConfig={adConfig} className="mb-12" />
 
           <div className="prose prose-lg max-w-none dark:prose-invert font-serif leading-relaxed text-lg md:text-xl">
             <ReactMarkdown>{article.content}</ReactMarkdown>
           </div>
 
-          <AdBanner type="adskeeper" className="my-12" />
+          <AdBanner type="adskeeper" adConfig={adConfig} className="my-12" />
 
           <Separator className="my-16" />
           

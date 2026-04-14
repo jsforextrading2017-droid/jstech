@@ -13,7 +13,9 @@ import {
   deleteAdminSession,
   getAdminPasswordRecord,
   getAdminSession,
+  getJsonSetting,
   resolveOpenAIKey,
+  setJsonSetting,
   saveOpenAIKey,
   setAdminPassword,
   verifyPasswordRecord,
@@ -33,6 +35,93 @@ type MetaConfig = {
   pageId?: string;
   pageAccessToken?: string;
 };
+
+type AdConfig = {
+  adsenseCode: string;
+  adsKeeperCode: string;
+  showAds: boolean;
+};
+
+type FacebookConfig = {
+  pageName: string;
+  storyCtaText: string;
+  storyLinkLabel: string;
+};
+
+type ArticleRecord = {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  category: string;
+  author: string;
+  publishedAt: string;
+  imageUrl: string;
+  portraitImageUrl?: string;
+  imageSubject?: string;
+  isBreaking?: boolean;
+  provider?: string;
+  warning?: string;
+  facebookStoryStatus?: 'pending' | 'posted' | 'failed' | 'skipped';
+  facebookStoryPublishedAt?: string;
+  facebookStoryError?: string;
+  facebookStoryPostId?: string;
+};
+
+type DraftRecord = ArticleRecord & {
+  createdAt: string;
+  imagePrompt?: string;
+};
+
+const STORAGE_KEYS = {
+  articles: 'content_articles',
+  drafts: 'content_drafts',
+  ads: 'content_ads',
+  ai: 'content_ai',
+  facebook: 'content_facebook',
+  meta: 'content_meta',
+} as const;
+
+const DEFAULT_ADS: AdConfig = { adsenseCode: '', adsKeeperCode: '', showAds: false };
+const DEFAULT_AI: AiConfig = {
+  ctaText: 'Read the full story',
+  tone: 'bold',
+  imageStyle: 'editorial',
+};
+const DEFAULT_FACEBOOK: FacebookConfig = {
+  pageName: 'jshubnetwork',
+  storyCtaText: 'Swipe to read',
+  storyLinkLabel: 'Swipe up to read',
+};
+const DEFAULT_META: MetaConfig = {
+  appId: '',
+  appSecret: '',
+  pageId: '',
+  pageAccessToken: '',
+};
+const INITIAL_ARTICLES: ArticleRecord[] = [
+  {
+    id: '1',
+    title: 'AI Breakthrough Reshapes the Tech Industry',
+    summary: 'A new wave of AI tools is changing how startups build, test, and launch products.',
+    content: 'A major shift is underway in the technology sector as AI tools become central to product development, design, and operations...',
+    category: 'Tech',
+    author: 'Dr. Elena Vance',
+    publishedAt: new Date().toISOString(),
+    imageUrl: 'https://picsum.photos/seed/tech/1200/800',
+    isBreaking: true,
+  },
+  {
+    id: '2',
+    title: 'Travel Trends Shift as Remote Work Changes How People Explore',
+    summary: 'More travelers are booking longer stays, blending work, leisure, and local experiences.',
+    content: 'The travel industry is seeing a structural shift as remote work continues to reshape how and where people take vacations...',
+    category: 'Travel',
+    author: 'Marcus Thorne',
+    publishedAt: new Date(Date.now() - 3600000).toISOString(),
+    imageUrl: 'https://picsum.photos/seed/travel/1200/800',
+  },
+];
 
 type FacebookStoryPayload = {
   title?: string;
@@ -198,6 +287,82 @@ const formatApiError = (context: string, response: Response, data: any) => {
   return `${context} (HTTP ${response.status}${statusText})${details}`;
 };
 
+const readJsonSetting = async <T>(key: string, fallback: T): Promise<T> =>
+  getJsonSetting<T>(key, fallback);
+
+const isDataUri = (value: string) => value.startsWith('data:');
+
+const toDataUri = async (value: string): Promise<string> => {
+  const trimmed = value.trim();
+  if (!trimmed || isDataUri(trimmed) || (!trimmed.startsWith('http://') && !trimmed.startsWith('https://'))) {
+    return value;
+  }
+
+  try {
+    const response = await fetch(trimmed);
+    if (!response.ok) {
+      return value;
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch {
+    return value;
+  }
+};
+
+const normalizeImageFields = async <T extends { imageUrl?: string; portraitImageUrl?: string }>(record: T): Promise<T> => {
+  const normalized: T = { ...record };
+  if (normalized.imageUrl) {
+    normalized.imageUrl = await toDataUri(normalized.imageUrl);
+  }
+  if (normalized.portraitImageUrl) {
+    normalized.portraitImageUrl = await toDataUri(normalized.portraitImageUrl);
+  }
+  return normalized;
+};
+
+const loadPublicState = async () => ({
+  articles: await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []),
+  ads: await readJsonSetting<AdConfig>(STORAGE_KEYS.ads, DEFAULT_ADS),
+  aiConfig: await readJsonSetting<AiConfig>(STORAGE_KEYS.ai, DEFAULT_AI),
+  facebookConfig: await readJsonSetting<FacebookConfig>(STORAGE_KEYS.facebook, DEFAULT_FACEBOOK),
+});
+
+const loadAdminState = async () => ({
+  drafts: await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []),
+  metaConfig: await readJsonSetting<MetaConfig>(STORAGE_KEYS.meta, DEFAULT_META),
+});
+
+const seedContentIfNeeded = async () => {
+  const publicState = await loadPublicState();
+  if (publicState.articles.length === 0) {
+    await setJsonSetting(STORAGE_KEYS.articles, INITIAL_ARTICLES);
+  }
+
+  if (!publicState.ads || Object.keys(publicState.ads).length === 0) {
+    await setJsonSetting(STORAGE_KEYS.ads, DEFAULT_ADS);
+  }
+
+  if (!publicState.aiConfig || Object.keys(publicState.aiConfig).length === 0) {
+    await setJsonSetting(STORAGE_KEYS.ai, DEFAULT_AI);
+  }
+
+  if (!publicState.facebookConfig || Object.keys(publicState.facebookConfig).length === 0) {
+    await setJsonSetting(STORAGE_KEYS.facebook, DEFAULT_FACEBOOK);
+  }
+
+  const adminState = await loadAdminState();
+  if (!adminState.drafts) {
+    await setJsonSetting(STORAGE_KEYS.drafts, []);
+  }
+
+  if (!adminState.metaConfig || Object.keys(adminState.metaConfig).length === 0) {
+    await setJsonSetting(STORAGE_KEYS.meta, DEFAULT_META);
+  }
+};
+
 const createStoryOverlaySvg = (payload: {
   title: string;
   summary: string;
@@ -288,12 +453,22 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
     throw new Error('Missing story background image');
   }
 
-  const imageResponse = await fetch(bgUrl);
-  if (!imageResponse.ok) {
-    throw new Error('Failed to load story background image');
+  let bgBuffer: Buffer;
+  if (bgUrl.startsWith('data:')) {
+    const match = bgUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      throw new Error('Failed to parse embedded story background image');
+    }
+    bgBuffer = Buffer.from(match[2], 'base64');
+  } else {
+    const imageResponse = await fetch(bgUrl);
+    if (!imageResponse.ok) {
+      throw new Error('Failed to load story background image');
+    }
+
+    bgBuffer = Buffer.from(await imageResponse.arrayBuffer());
   }
 
-  const bgBuffer = Buffer.from(await imageResponse.arrayBuffer());
   const base = sharp(bgBuffer)
     .resize(1080, 1920, { fit: 'cover' })
     .modulate({ brightness: 1.08, saturation: 1.08 });
@@ -705,6 +880,232 @@ async function startServer() {
       res.status(error.status || 500).json({ 
         error: "Generation Failed",
         message: error.message 
+      });
+    }
+  });
+
+  app.get("/api/content/public", async (_req, res) => {
+    try {
+      await seedContentIfNeeded();
+      return res.json(await loadPublicState());
+    } catch (error: any) {
+      console.error("Failed to load public content:", error);
+      return res.status(500).json({
+        message: error.message || "Failed to load public content.",
+      });
+    }
+  });
+
+  app.get("/api/content/admin", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      await seedContentIfNeeded();
+      return res.json(await loadAdminState());
+    } catch (error: any) {
+      console.error("Failed to load admin content:", error);
+      return res.status(500).json({
+        message: error.message || "Failed to load admin content.",
+      });
+    }
+  });
+
+  app.post("/api/content/drafts", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const draft = req.body as DraftRecord;
+      if (!draft?.id) {
+        return res.status(400).json({ saved: false, message: "Missing draft id." });
+      }
+
+      const normalized = await normalizeImageFields(draft);
+      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
+      const nextDrafts = drafts.some((item) => item.id === normalized.id)
+        ? drafts.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
+        : [normalized, ...drafts];
+
+      await setJsonSetting(STORAGE_KEYS.drafts, nextDrafts);
+      return res.json({ saved: true, draft: normalized });
+    } catch (error: any) {
+      console.error("Failed to save draft:", error);
+      return res.status(500).json({
+        saved: false,
+        message: error.message || "Failed to save draft.",
+      });
+    }
+  });
+
+  app.post("/api/content/articles", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const article = req.body as ArticleRecord;
+      if (!article?.id) {
+        return res.status(400).json({ saved: false, message: "Missing article id." });
+      }
+
+      const normalized = await normalizeImageFields(article);
+      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
+      const nextArticles = articles.some((item) => item.id === normalized.id)
+        ? articles.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
+        : [normalized, ...articles];
+
+      await setJsonSetting(STORAGE_KEYS.articles, nextArticles);
+      return res.json({ saved: true, article: normalized });
+    } catch (error: any) {
+      console.error("Failed to save article:", error);
+      return res.status(500).json({
+        saved: false,
+        message: error.message || "Failed to save article.",
+      });
+    }
+  });
+
+  app.delete("/api/content/drafts/:id", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { id } = req.params;
+      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
+      const nextDrafts = drafts.filter((draft) => draft.id !== id);
+      await setJsonSetting(STORAGE_KEYS.drafts, nextDrafts);
+      return res.json({ deleted: true });
+    } catch (error: any) {
+      console.error("Failed to delete draft:", error);
+      return res.status(500).json({
+        deleted: false,
+        message: error.message || "Failed to delete draft.",
+      });
+    }
+  });
+
+  app.post("/api/content/drafts/:id/publish", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { id } = req.params;
+      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
+      const draft = drafts.find((item) => item.id === id);
+      if (!draft) {
+        return res.status(404).json({ published: false, message: "Draft not found." });
+      }
+
+      const normalizedDraft = await normalizeImageFields(draft);
+      const article: ArticleRecord = {
+        id: normalizedDraft.id,
+        title: normalizedDraft.title,
+        summary: normalizedDraft.summary,
+        content: normalizedDraft.content,
+        category: normalizedDraft.category,
+        author: normalizedDraft.author,
+        publishedAt: new Date().toISOString(),
+        imageUrl: normalizedDraft.imageUrl,
+        portraitImageUrl: normalizedDraft.portraitImageUrl,
+        imageSubject: normalizedDraft.imageSubject,
+        isBreaking: normalizedDraft.isBreaking,
+        provider: normalizedDraft.provider,
+        warning: normalizedDraft.warning,
+        facebookStoryStatus: normalizedDraft.facebookStoryStatus,
+        facebookStoryPublishedAt: normalizedDraft.facebookStoryPublishedAt,
+        facebookStoryError: normalizedDraft.facebookStoryError,
+        facebookStoryPostId: normalizedDraft.facebookStoryPostId,
+      };
+
+      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
+      const nextArticles = articles.some((item) => item.id === article.id)
+        ? articles.map((item) => (item.id === article.id ? article : item))
+        : [article, ...articles];
+
+      await Promise.all([
+        setJsonSetting(STORAGE_KEYS.articles, nextArticles),
+        setJsonSetting(STORAGE_KEYS.drafts, drafts.filter((item) => item.id !== id)),
+      ]);
+
+      return res.json({ published: true, article });
+    } catch (error: any) {
+      console.error("Failed to publish draft:", error);
+      return res.status(500).json({
+        published: false,
+        message: error.message || "Failed to publish draft.",
+      });
+    }
+  });
+
+  app.delete("/api/content/articles/:id", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { id } = req.params;
+      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
+      const nextArticles = articles.filter((article) => article.id !== id);
+      await setJsonSetting(STORAGE_KEYS.articles, nextArticles);
+      return res.json({ deleted: true });
+    } catch (error: any) {
+      console.error("Failed to delete article:", error);
+      return res.status(500).json({
+        deleted: false,
+        message: error.message || "Failed to delete article.",
+      });
+    }
+  });
+
+  app.put("/api/content/config/public", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { ads, aiConfig, facebookConfig } = req.body as {
+        ads?: AdConfig;
+        aiConfig?: AiConfig;
+        facebookConfig?: FacebookConfig;
+      };
+
+      if (ads) {
+        await setJsonSetting(STORAGE_KEYS.ads, ads);
+      }
+      if (aiConfig) {
+        await setJsonSetting(STORAGE_KEYS.ai, aiConfig);
+      }
+      if (facebookConfig) {
+        await setJsonSetting(STORAGE_KEYS.facebook, facebookConfig);
+      }
+
+      return res.json({
+        saved: true,
+        ...(await loadPublicState()),
+      });
+    } catch (error: any) {
+      console.error("Failed to save public config:", error);
+      return res.status(500).json({
+        saved: false,
+        message: error.message || "Failed to save public config.",
+      });
+    }
+  });
+
+  app.put("/api/content/config/meta", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const metaConfig = req.body as MetaConfig;
+      await setJsonSetting(STORAGE_KEYS.meta, metaConfig);
+      return res.json({
+        saved: true,
+        metaConfig,
+      });
+    } catch (error: any) {
+      console.error("Failed to save meta config:", error);
+      return res.status(500).json({
+        saved: false,
+        message: error.message || "Failed to save meta config.",
       });
     }
   });

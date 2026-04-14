@@ -55,13 +55,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const buildArticleUrl = (id: string) => `${window.location.origin}/?post=${id}`;
 
   React.useEffect(() => {
-    setArticles(storage.getArticles());
-    setDrafts(storage.getDrafts());
-    setAdConfig(storage.getAds());
-    setAiConfig(storage.getAIConfig());
-    setFacebookConfig(storage.getFacebookConfig());
-    setMetaConfig(storage.getMetaConfig());
-    handleCheckStatus();
+    const loadState = async () => {
+      try {
+        await storage.migrateLegacyLocalStorage();
+        const [publicState, adminState] = await Promise.all([
+          storage.loadPublicState(),
+          storage.loadAdminState(),
+        ]);
+        setArticles(publicState.articles);
+        setAdConfig(publicState.ads);
+        setAiConfig(publicState.aiConfig);
+        setFacebookConfig(publicState.facebookConfig);
+        setDrafts(adminState.drafts);
+        setMetaConfig(adminState.metaConfig);
+        handleCheckStatus();
+      } catch (error) {
+        console.error(error);
+        toast.error('Failed to load database content.');
+      }
+    };
+
+    loadState();
   }, []);
 
   React.useEffect(() => {
@@ -99,9 +113,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   };
 
   const refreshCollections = () => {
-    setArticles(storage.getArticles());
-    setDrafts(storage.getDrafts());
-    onArticlesUpdate();
+    Promise.all([storage.loadPublicState(), storage.loadAdminState()])
+      .then(([publicState, adminState]) => {
+        setArticles(publicState.articles);
+        setAdConfig(publicState.ads);
+        setAiConfig(publicState.aiConfig);
+        setFacebookConfig(publicState.facebookConfig);
+        setDrafts(adminState.drafts);
+        setMetaConfig(adminState.metaConfig);
+        onArticlesUpdate();
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error('Failed to refresh database content.');
+      });
   };
 
   const handleGenerate = async (category: Category) => {
@@ -115,8 +140,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
         imagePrompt,
         facebookStoryStatus: 'pending',
       };
-      storage.saveDraft(draft);
-      setDrafts(storage.getDrafts());
+      const savedDraft = await storage.saveDraft(draft);
+      setDrafts((current) => [savedDraft, ...current.filter((item) => item.id !== savedDraft.id)]);
       setImagePrompt('');
 
       const canPublishStory = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
@@ -136,31 +161,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
             articleUrl: buildArticleUrl(draft.id),
             isBreaking: Boolean(newArticleData.isBreaking),
           });
-          storage.updateDraft(draft.id, (current) => ({
-            ...current,
+          const updatedDraft = await storage.saveDraft({
+            ...savedDraft,
             facebookStoryStatus: 'posted',
             facebookStoryPublishedAt: new Date().toISOString(),
             facebookStoryError: undefined,
-          }));
-          setDrafts(storage.getDrafts());
+          });
+          setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
           toast.success("Facebook Story published automatically.");
         } catch (storyError) {
           console.error("Facebook story publish failed:", storyError);
-          storage.updateDraft(draft.id, (current) => ({
-            ...current,
+          const updatedDraft = await storage.saveDraft({
+            ...savedDraft,
             facebookStoryStatus: 'failed',
             facebookStoryError: storyError instanceof Error ? storyError.message : 'Facebook Story publish failed.',
-          }));
-          setDrafts(storage.getDrafts());
+          });
+          setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
           toast.warning("Draft saved, but Facebook Story publish failed.");
         }
       } else {
-        storage.updateDraft(draft.id, (current) => ({
-          ...current,
+        const updatedDraft = await storage.saveDraft({
+          ...savedDraft,
           facebookStoryStatus: 'skipped',
           facebookStoryError: 'Meta credentials not configured.',
-        }));
-        setDrafts(storage.getDrafts());
+        });
+        setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
       }
       
       if (newArticleData.warning) {
@@ -186,51 +211,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     }
   };
 
-  const handlePublishDraft = (id: string) => {
+  const handlePublishDraft = async (id: string) => {
     try {
-      const published = storage.publishDraft(id);
+      const published = await storage.publishDraft(id);
       if (!published) {
         toast.error("Draft not found.");
         return;
       }
-      setArticles(storage.getArticles());
-      setDrafts(storage.getDrafts());
+      setArticles((current) => [published, ...current.filter((item) => item.id !== published.id)]);
+      setDrafts((current) => current.filter((draft) => draft.id !== id));
       onArticlesUpdate();
       toast.success(`Published "${published.title}"`);
     } catch (error: any) {
       console.error("Publish failed:", error);
-      const message = String(error?.message || error);
-      if (message.includes("QuotaExceededError") || message.toLowerCase().includes("quota")) {
-        toast.error("Browser storage is full.", {
-          description: "Delete older drafts or regenerate with the new URL-based image flow.",
-          duration: 7000,
-        });
-      } else {
-        toast.error(message || "Failed to publish draft.");
-      }
+      toast.error(error?.message || "Failed to publish draft.");
     }
   };
 
-  const handleDeleteDraft = (id: string) => {
-    storage.deleteDraft(id);
-    setDrafts(storage.getDrafts());
+  const handleDeleteDraft = async (id: string) => {
+    await storage.deleteDraft(id);
+    setDrafts((current) => current.filter((draft) => draft.id !== id));
     toast.info("Draft removed.");
   };
 
-  const handleDelete = (id: string) => {
-    storage.deleteArticle(id);
-    setArticles(storage.getArticles());
+  const handleDelete = async (id: string) => {
+    await storage.deleteArticle(id);
+    setArticles((current) => current.filter((article) => article.id !== id));
     onArticlesUpdate();
     toast.info("Article deleted.");
   };
 
-  const handleSaveAds = () => {
-    storage.saveAds(adConfig);
+  const handleSaveAds = async () => {
+    const saved = await storage.saveAds(adConfig);
+    setAdConfig(saved);
     toast.success("Ad configuration saved.");
   };
 
-  const handleSaveAI = () => {
-    storage.saveAIConfig(aiConfig);
+  const handleSaveAI = async () => {
+    const saved = await storage.saveAIConfig(aiConfig);
+    setAiConfig(saved);
     toast.success("AI configuration saved.");
   };
 
@@ -304,14 +323,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       });
   };
 
-  const handleSaveFacebook = () => {
-    storage.saveFacebookConfig(facebookConfig);
+  const handleSaveFacebook = async () => {
+    const saved = await storage.saveFacebookConfig(facebookConfig);
+    setFacebookConfig(saved);
     toast.success("Facebook story settings saved.");
   };
 
-  const handleSaveMeta = () => {
-    storage.saveMetaConfig(metaConfig);
-    toast.success("Meta credentials saved locally for testing.");
+  const handleSaveMeta = async () => {
+    const saved = await storage.saveMetaConfig(metaConfig);
+    setMetaConfig(saved);
+    toast.success("Meta credentials saved in the database.");
   };
 
   const handleTestMeta = async () => {
