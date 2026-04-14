@@ -18,6 +18,7 @@ import { motion } from 'motion/react';
 
 export default function App() {
   const getViewFromPath = () => (window.location.pathname.startsWith('/admin') ? 'admin' : 'news');
+  const getPostIdFromPath = () => new URLSearchParams(window.location.search).get('post');
   const [view, setView] = React.useState<'news' | 'admin'>(getViewFromPath);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = React.useState(false);
   const [isCheckingAdmin, setIsCheckingAdmin] = React.useState(true);
@@ -33,6 +34,21 @@ export default function App() {
     storage.seedInitialData();
     setArticles(storage.getArticles());
   }, []);
+
+  React.useEffect(() => {
+    if (window.location.pathname.startsWith('/admin')) {
+      return;
+    }
+
+    const postId = getPostIdFromPath();
+    if (!postId) {
+      setSelectedArticle(null);
+      return;
+    }
+
+    const matchedArticle = articles.find((article) => article.id === postId) || null;
+    setSelectedArticle(matchedArticle);
+  }, [articles]);
 
   React.useEffect(() => {
     const syncAuth = async () => {
@@ -63,12 +79,19 @@ export default function App() {
   React.useEffect(() => {
     const handlePopState = () => {
       setView(getViewFromPath());
-      setSelectedArticle(null);
+      if (window.location.pathname.startsWith('/admin')) {
+        setSelectedArticle(null);
+        return;
+      }
+
+      const postId = getPostIdFromPath();
+      const matchedArticle = articles.find((article) => article.id === postId) || null;
+      setSelectedArticle(matchedArticle);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [articles]);
 
   const refreshArticles = () => {
     setArticles(storage.getArticles());
@@ -106,6 +129,7 @@ export default function App() {
 
   const handleArticleClick = (article: Article) => {
     setSelectedArticle(article);
+    window.history.pushState({}, '', `/?post=${article.id}`);
     window.scrollTo(0, 0);
   };
 
@@ -136,7 +160,13 @@ export default function App() {
       
       <main className="pb-24">
         {selectedArticle ? (
-          <ArticleDetail article={selectedArticle} onBack={() => setSelectedArticle(null)} />
+          <ArticleDetail
+            article={selectedArticle}
+            onBack={() => {
+              window.history.pushState({}, '', '/');
+              setSelectedArticle(null);
+            }}
+          />
         ) : view === 'admin' ? (
           isCheckingAdmin ? (
             <div className="container mx-auto px-4 py-32 text-center">

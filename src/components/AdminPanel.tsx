@@ -52,6 +52,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
 
+  const buildArticleUrl = (id: string) => `${window.location.origin}/?post=${id}`;
+
   React.useEffect(() => {
     setArticles(storage.getArticles());
     setDrafts(storage.getDrafts());
@@ -131,6 +133,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
             pageName: facebookConfig.pageName,
             pageId: metaConfig.pageId,
             pageAccessToken: metaConfig.pageAccessToken,
+            articleUrl: buildArticleUrl(draft.id),
             isBreaking: Boolean(newArticleData.isBreaking),
           });
           storage.updateDraft(draft.id, (current) => ({
