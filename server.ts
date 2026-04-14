@@ -329,7 +329,7 @@ const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?
 
   const storyUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/${pageId}/photo_stories`);
   storyUrl.searchParams.set('access_token', pageAccessToken);
-  storyUrl.searchParams.set('attached_media', JSON.stringify([{ media_fbid: photoId }]));
+  storyUrl.searchParams.set('photo_id', photoId);
 
   const storyResponse = await fetch(storyUrl, {
     method: 'POST',
