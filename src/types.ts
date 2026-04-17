@@ -10,6 +10,8 @@ export interface Article {
   publishedAt: string;
   imageUrl: string;
   portraitImageUrl?: string;
+  imageSourceUrl?: string;
+  portraitImageSourceUrl?: string;
   imageSubject?: string;
   isBreaking?: boolean;
   provider?: string;
@@ -53,4 +55,18 @@ export interface MetaConfig {
 
 export interface NewsState {
   articles: Article[];
+}
+
+export interface MediaAsset {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  optimizedUrl: string;
+  kind: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
 }

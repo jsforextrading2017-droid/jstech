@@ -1,7 +1,7 @@
 import React from 'react';
-import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testFacebookStoryPublish, testMetaConnection, logoutAdmin, publishFacebookStory } from '../lib/newsApi';
+import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testFacebookStoryPublish, testMetaConnection, logoutAdmin, publishFacebookStory, loadMediaLibrary, uploadMediaAsset, regenerateMediaAsset } from '../lib/newsApi';
 import { storage } from '../lib/storage';
-import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MetaConfig } from '../types';
+import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MediaAsset, MetaConfig } from '../types';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { 
-  Loader2, Plus, RefreshCw, Trash2, Wand2, Megaphone, 
-  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban, Key, ShieldCheck 
+  Loader2, RefreshCw, Trash2, Wand2, Megaphone, 
+  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban, Key, ShieldCheck, Upload, Image as ImageIcon, Copy, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
@@ -24,6 +24,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [articles, setArticles] = React.useState<Article[]>([]);
   const [drafts, setDrafts] = React.useState<DraftArticle[]>([]);
+  const [mediaAssets, setMediaAssets] = React.useState<MediaAsset[]>([]);
   const [adConfig, setAdConfig] = React.useState<AdConfig>({ adsenseCode: '', adsKeeperCode: '', showAds: false });
   const [aiConfig, setAiConfig] = React.useState<AiConfig>({
     ctaText: 'Read the full story',
@@ -51,6 +52,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [isLoadingMedia, setIsLoadingMedia] = React.useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = React.useState(false);
+  const [regeneratingAssetId, setRegeneratingAssetId] = React.useState<string | null>(null);
+  const mediaInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const buildArticleUrl = (id: string) => `${window.location.origin}/?post=${id}`;
 
@@ -58,9 +63,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     const loadState = async () => {
       try {
         await storage.migrateLegacyLocalStorage();
-        const [publicState, adminState] = await Promise.all([
+        const [publicState, adminState, mediaState] = await Promise.all([
           storage.loadPublicState(),
           storage.loadAdminState(),
+          loadMediaLibrary(),
         ]);
         setArticles(publicState.articles);
         setAdConfig(publicState.ads);
@@ -68,6 +74,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
         setFacebookConfig(publicState.facebookConfig);
         setDrafts(adminState.drafts);
         setMetaConfig(adminState.metaConfig);
+        setMediaAssets(mediaState.assets);
         handleCheckStatus();
       } catch (error) {
         console.error(error);
@@ -112,23 +119,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     }
   };
 
-  const refreshCollections = () => {
-    Promise.all([storage.loadPublicState(), storage.loadAdminState()])
-      .then(([publicState, adminState]) => {
-        setArticles(publicState.articles);
-        setAdConfig(publicState.ads);
-        setAiConfig(publicState.aiConfig);
-        setFacebookConfig(publicState.facebookConfig);
-        setDrafts(adminState.drafts);
-        setMetaConfig(adminState.metaConfig);
-        onArticlesUpdate();
-      })
-      .catch((error) => {
-        console.error(error);
-        toast.error('Failed to refresh database content.');
-      });
-  };
-
   const handleGenerate = async (category: Category) => {
     setIsGenerating(true);
     try {
@@ -142,6 +132,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       };
       const savedDraft = await storage.saveDraft(draft);
       setDrafts((current) => [savedDraft, ...current.filter((item) => item.id !== savedDraft.id)]);
+      await refreshMediaLibrary();
       setImagePrompt('');
 
       const canPublishStory = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
@@ -221,6 +212,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       setArticles((current) => [published, ...current.filter((item) => item.id !== published.id)]);
       setDrafts((current) => current.filter((draft) => draft.id !== id));
       onArticlesUpdate();
+      await refreshMediaLibrary();
       toast.success(`Published "${published.title}"`);
     } catch (error: any) {
       console.error("Publish failed:", error);
@@ -231,6 +223,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const handleDeleteDraft = async (id: string) => {
     await storage.deleteDraft(id);
     setDrafts((current) => current.filter((draft) => draft.id !== id));
+    await refreshMediaLibrary();
     toast.info("Draft removed.");
   };
 
@@ -238,6 +231,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     await storage.deleteArticle(id);
     setArticles((current) => current.filter((article) => article.id !== id));
     onArticlesUpdate();
+    await refreshMediaLibrary();
     toast.info("Article deleted.");
   };
 
@@ -250,6 +244,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       setArticles([]);
       setDrafts([]);
       onArticlesUpdate();
+      await refreshMediaLibrary();
       toast.success('Articles and drafts cleared.');
     } catch (error) {
       console.error(error);
@@ -393,6 +388,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     }
   };
 
+  const refreshMediaLibrary = async () => {
+    setIsLoadingMedia(true);
+    try {
+      const mediaState = await loadMediaLibrary();
+      setMediaAssets(mediaState.assets);
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to load media library.');
+    } finally {
+      setIsLoadingMedia(false);
+    }
+  };
+
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Failed to read file.'));
+      reader.readAsDataURL(file);
+    });
+
+  const handleUploadMedia = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    setIsUploadingMedia(true);
+    try {
+      for (const file of files) {
+        const dataUrl = await fileToDataUrl(file);
+        await uploadMediaAsset({ name: file.name, dataUrl });
+      }
+      await refreshMediaLibrary();
+      toast.success(`Uploaded ${files.length} image${files.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload media.');
+    } finally {
+      setIsUploadingMedia(false);
+      if (mediaInputRef.current) {
+        mediaInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRegenerateMedia = async (assetId: string) => {
+    setRegeneratingAssetId(assetId);
+    try {
+      await regenerateMediaAsset(assetId);
+      await refreshMediaLibrary();
+      toast.success('Media regenerated.');
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to regenerate media.');
+    } finally {
+      setRegeneratingAssetId(null);
+    }
+  };
+
+  const handleCopyMediaUrl = async (url: string) => {
+    await navigator.clipboard.writeText(`${window.location.origin}${url}`);
+    toast.success('Media URL copied.');
+  };
+
   return (
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6">
@@ -423,7 +483,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       </div>
 
       <Tabs defaultValue="content" className="space-y-8">
-        <TabsList className="grid w-full max-w-2xl grid-cols-4">
+        <TabsList className="grid w-full max-w-3xl grid-cols-5">
           <TabsTrigger value="content" className="gap-2">
             <FileText size={16} />
             Content
@@ -431,6 +491,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
           <TabsTrigger value="review" className="gap-2">
             <ClipboardList size={16} />
             Review
+          </TabsTrigger>
+          <TabsTrigger value="media" className="gap-2">
+            <ImageIcon size={16} />
+            Media
           </TabsTrigger>
           <TabsTrigger value="ads" className="gap-2">
             <Megaphone size={16} />
@@ -643,6 +707,94 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
               {drafts.length === 0 && (
                 <div className="text-center py-24 border-2 border-dashed rounded-xl">
                   <p className="text-muted-foreground">No drafts waiting for review.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="media" className="space-y-8">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle>Media Library</CardTitle>
+                  <CardDescription>
+                    Upload optimized images, inspect stored assets, and regenerate files from their original source.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={refreshMediaLibrary} disabled={isLoadingMedia} className="gap-2">
+                    {isLoadingMedia ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+                    Refresh Library
+                  </Button>
+                  <Button onClick={() => mediaInputRef.current?.click()} disabled={isUploadingMedia} className="gap-2">
+                    {isUploadingMedia ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
+                    Upload Media
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleUploadMedia}
+              />
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {mediaAssets.map((asset) => (
+                  <Card key={asset.id} className="overflow-hidden">
+                    <div className="aspect-[4/3] overflow-hidden bg-muted">
+                      <img
+                        src={asset.optimizedUrl}
+                        alt={asset.name}
+                        className="h-full w-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <CardContent className="space-y-4 p-4">
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="truncate font-semibold">{asset.name}</h3>
+                            <p className="text-xs text-muted-foreground">
+                              {asset.width} x {asset.height} · {(asset.sizeBytes / 1024).toFixed(1)} KB
+                            </p>
+                          </div>
+                          <Badge variant="secondary">{asset.kind}</Badge>
+                        </div>
+                        <p className="mt-2 truncate text-xs text-muted-foreground">{asset.sourceUrl}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" className="gap-2" onClick={() => handleCopyMediaUrl(asset.optimizedUrl)}>
+                          <Copy size={14} />
+                          Copy URL
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => handleRegenerateMedia(asset.id)}
+                          disabled={regeneratingAssetId === asset.id}
+                        >
+                          {regeneratingAssetId === asset.id ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+                          Regenerate
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {mediaAssets.length === 0 && (
+                <div className="rounded-2xl border border-dashed p-12 text-center">
+                  <ImageIcon className="mx-auto mb-4 text-muted-foreground" size={40} />
+                  <p className="text-muted-foreground">No media assets yet. Upload an image or generate a story to fill the library.</p>
                 </div>
               )}
             </CardContent>

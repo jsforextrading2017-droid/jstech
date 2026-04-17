@@ -1,4 +1,4 @@
-import { Article, Category, AiConfig, MetaConfig } from "../types";
+import { Article, Category, AiConfig, MediaAsset, MetaConfig } from "../types";
 
 const jsonHeaders = {
   'Content-Type': 'application/json',
@@ -175,6 +175,8 @@ export async function publishFacebookStory(payload: {
   category: string;
   imageUrl: string;
   portraitImageUrl?: string;
+  imageSourceUrl?: string;
+  portraitImageSourceUrl?: string;
   storyCtaText: string;
   storyLinkLabel: string;
   pageName: string;
@@ -227,6 +229,51 @@ export async function testFacebookStoryPublish(payload: {
   if (!response.ok) {
     const details = (data as any).message || (data as any).error || (data as any).raw || raw;
     throw new Error(String(details || 'Failed to publish Facebook story'));
+  }
+
+  return data;
+}
+
+export async function loadMediaLibrary(): Promise<{ assets: MediaAsset[] }> {
+  const response = await fetch('/api/media/library', {
+    headers: getAuthHeaders(),
+  });
+
+  const { raw, data } = await parseResponseBody<{ assets: MediaAsset[] }>(response);
+  if (!response.ok) {
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to load media library'));
+  }
+
+  return data;
+}
+
+export async function uploadMediaAsset(payload: { name: string; dataUrl: string }): Promise<{ uploaded: boolean; asset: MediaAsset | null }> {
+  const response = await fetch('/api/media/upload', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  const { raw, data } = await parseResponseBody<{ uploaded: boolean; asset: MediaAsset | null }>(response);
+  if (!response.ok) {
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to upload media asset'));
+  }
+
+  return data;
+}
+
+export async function regenerateMediaAsset(id: string): Promise<{ regenerated: boolean; asset: MediaAsset | null }> {
+  const response = await fetch(`/api/media/regenerate/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+
+  const { raw, data } = await parseResponseBody<{ regenerated: boolean; asset: MediaAsset | null }>(response);
+  if (!response.ok) {
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to regenerate media asset'));
   }
 
   return data;

@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs/promises";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
@@ -10,14 +11,26 @@ import {
   clearOpenAIKey,
   cleanupExpiredAdminSessions,
   createAdminSession,
+  deleteStoredArticle,
+  deleteStoredDraft,
   deleteAdminSession,
   getAdminPasswordRecord,
+  getMediaAsset,
   getAdminSession,
+  MediaAssetRecord,
   getJsonSetting,
+  listStoredArticles,
+  listStoredDrafts,
+  listMediaAssets,
   resolveOpenAIKey,
   setJsonSetting,
   saveOpenAIKey,
   setAdminPassword,
+  replaceStoredArticles,
+  replaceStoredDrafts,
+  upsertMediaAsset,
+  upsertStoredArticle,
+  upsertStoredDraft,
   verifyPasswordRecord,
 } from "./db";
 
@@ -58,6 +71,8 @@ type ArticleRecord = {
   publishedAt: string;
   imageUrl: string;
   portraitImageUrl?: string;
+  imageSourceUrl?: string;
+  portraitImageSourceUrl?: string;
   imageSubject?: string;
   isBreaking?: boolean;
   provider?: string;
@@ -74,8 +89,6 @@ type DraftRecord = ArticleRecord & {
 };
 
 const STORAGE_KEYS = {
-  articles: 'content_articles',
-  drafts: 'content_drafts',
   ads: 'content_ads',
   ai: 'content_ai',
   facebook: 'content_facebook',
@@ -290,7 +303,236 @@ const formatApiError = (context: string, response: Response, data: any) => {
 const readJsonSetting = async <T>(key: string, fallback: T): Promise<T> =>
   getJsonSetting<T>(key, fallback);
 
-const isEmbeddedImage = (value?: string) => !!value?.startsWith('data:');
+const isOptimizedMediaPath = (value?: string) => !!value?.startsWith('/media/');
+
+const MEDIA_DIR = path.join(process.cwd(), 'media');
+const MEDIA_URL_PREFIX = '/media';
+
+const ensureMediaDir = async () => {
+  await fs.mkdir(MEDIA_DIR, { recursive: true });
+};
+
+const mediaUrlToFilePath = (url: string) => {
+  if (!url.startsWith(MEDIA_URL_PREFIX)) {
+    throw new Error('Not a local media URL.');
+  }
+
+  const relativePath = url.replace(new RegExp(`^${MEDIA_URL_PREFIX}/`), '');
+  return path.join(MEDIA_DIR, relativePath);
+};
+
+const fetchImageBuffer = async (source: string) => {
+  if (source.startsWith('data:')) {
+    const match = source.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      throw new Error('Failed to parse embedded image data.');
+    }
+
+    return Buffer.from(match[2], 'base64');
+  }
+
+  if (source.startsWith(MEDIA_URL_PREFIX + '/')) {
+    return fs.readFile(mediaUrlToFilePath(source));
+  }
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image (${response.status}).`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+};
+
+const parseDataUrl = (dataUrl: string) => {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error('Invalid data URL.');
+  }
+
+  return {
+    mimeType: match[1],
+    buffer: Buffer.from(match[2], 'base64'),
+  };
+};
+
+const ensureParentDir = async (filePath: string) => {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+};
+
+const recordMediaAsset = async (params: {
+  name: string;
+  sourceUrl: string;
+  optimizedUrl: string;
+  kind: string;
+  width: number;
+  height: number;
+  mimeType: string;
+}) => {
+  const filePath = mediaUrlToFilePath(params.optimizedUrl);
+  const stat = await fs.stat(filePath);
+  const id = crypto
+    .createHash('sha1')
+    .update(JSON.stringify({
+      sourceUrl: params.sourceUrl,
+      optimizedUrl: params.optimizedUrl,
+      kind: params.kind,
+      width: params.width,
+      height: params.height,
+      mimeType: params.mimeType,
+    }))
+    .digest('hex');
+
+  await upsertMediaAsset({
+    id,
+    name: params.name,
+    source_url: params.sourceUrl,
+    optimized_url: params.optimizedUrl,
+    kind: params.kind,
+    width: params.width,
+    height: params.height,
+    mime_type: params.mimeType,
+    size_bytes: stat.size,
+  });
+
+  return id;
+};
+
+type OptimizeMediaOptions = {
+  width: number;
+  height: number;
+  quality?: number;
+  format?: 'webp' | 'jpeg';
+  fit?: 'cover' | 'contain' | 'inside' | 'outside';
+};
+
+const optimizeMediaUrl = async (source: string, options: OptimizeMediaOptions) => {
+  if (!source || isOptimizedMediaPath(source)) {
+    return source;
+  }
+
+  await ensureMediaDir();
+
+  const hash = crypto
+    .createHash('sha1')
+    .update(JSON.stringify({ source, options }))
+    .digest('hex');
+  const extension = options.format === 'jpeg' ? 'jpg' : 'webp';
+  const fileName = `${hash}-${options.width}x${options.height}.${extension}`;
+  const filePath = path.join(MEDIA_DIR, fileName);
+
+  try {
+    await fs.access(filePath);
+  } catch {
+    const inputBuffer = await fetchImageBuffer(source);
+    await ensureParentDir(filePath);
+    let image = sharp(inputBuffer).resize(options.width, options.height, {
+      fit: options.fit || 'cover',
+    });
+
+    if (options.format === 'jpeg') {
+      image = image.jpeg({ quality: options.quality || 82 });
+    } else {
+      image = image.webp({ quality: options.quality || 82 });
+    }
+
+    await image.toFile(filePath);
+  }
+
+  return `${MEDIA_URL_PREFIX}/${fileName}`;
+};
+
+const normalizeStoredImageFields = async <T extends {
+  title?: string;
+  id?: string;
+  imageUrl?: string;
+  portraitImageUrl?: string;
+  imageSourceUrl?: string;
+  portraitImageSourceUrl?: string;
+}>(record: T): Promise<T & {
+  imageUrl: string;
+  imageSourceUrl: string;
+  portraitImageUrl?: string;
+  portraitImageSourceUrl?: string;
+}> => {
+  const title = record.title || record.id || 'story';
+  const imageSourceUrl =
+    record.imageSourceUrl ||
+    record.imageUrl ||
+    fallbackImageUrl(title);
+  const portraitSourceUrl =
+    record.portraitImageSourceUrl ||
+    record.portraitImageUrl;
+
+  let imageUrl = record.imageUrl || imageSourceUrl;
+  try {
+    imageUrl = await optimizeMediaUrl(imageSourceUrl, {
+      width: 1200,
+      height: 800,
+      quality: 82,
+      format: 'webp',
+    });
+  } catch (error) {
+    console.warn(`Failed to optimize article image for "${title}". Falling back to source URL.`, error);
+  }
+
+  let portraitImageUrl = record.portraitImageUrl;
+  if (portraitSourceUrl) {
+    try {
+      portraitImageUrl = await optimizeMediaUrl(portraitSourceUrl, {
+        width: 1024,
+        height: 1792,
+        quality: 82,
+        format: 'webp',
+      });
+    } catch (error) {
+      console.warn(`Failed to optimize portrait image for "${title}". Falling back to source URL.`, error);
+      portraitImageUrl = portraitSourceUrl;
+    }
+  }
+
+  try {
+    await recordMediaAsset({
+      name: `${title}-cover`,
+      sourceUrl: imageSourceUrl,
+      optimizedUrl: imageUrl,
+      kind: 'cover',
+      width: 1200,
+      height: 800,
+      mimeType: 'image/webp',
+    });
+  } catch (error) {
+    console.warn(`Failed to record media asset for "${title}".`, error);
+  }
+
+  if (portraitSourceUrl && portraitImageUrl) {
+    try {
+      await recordMediaAsset({
+        name: `${title}-portrait`,
+        sourceUrl: portraitSourceUrl,
+        optimizedUrl: portraitImageUrl,
+        kind: 'portrait',
+        width: 1024,
+        height: 1792,
+        mimeType: 'image/webp',
+      });
+    } catch (error) {
+      console.warn(`Failed to record portrait media asset for "${title}".`, error);
+    }
+  }
+
+  return {
+    ...record,
+    imageUrl,
+    imageSourceUrl,
+    portraitImageUrl,
+    portraitImageSourceUrl: portraitSourceUrl,
+  } as T & {
+    imageUrl: string;
+    imageSourceUrl: string;
+    portraitImageUrl?: string;
+    portraitImageSourceUrl?: string;
+  };
+};
 
 const fallbackImageUrl = (title: string, suffix = '') => {
   const seed = encodeURIComponent(`${slugify(title || 'story')}${suffix}`);
@@ -302,31 +544,23 @@ const fallbackPortraitUrl = (title: string) => {
   return `https://picsum.photos/seed/${seed}/1024/1792`;
 };
 
-const sanitizeStoredImageFields = <T extends { title?: string; id?: string; imageUrl?: string; portraitImageUrl?: string }>(record: T): T => {
-  const title = record.title || record.id || 'story';
-  return {
-    ...record,
-    imageUrl: isEmbeddedImage(record.imageUrl) ? fallbackImageUrl(title) : record.imageUrl,
-    portraitImageUrl: isEmbeddedImage(record.portraitImageUrl) ? fallbackPortraitUrl(title) : record.portraitImageUrl,
-  };
-};
-
 const loadPublicState = async () => ({
-  articles: await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []),
+  articles: await listStoredArticles<ArticleRecord>(),
   ads: await readJsonSetting<AdConfig>(STORAGE_KEYS.ads, DEFAULT_ADS),
   aiConfig: await readJsonSetting<AiConfig>(STORAGE_KEYS.ai, DEFAULT_AI),
   facebookConfig: await readJsonSetting<FacebookConfig>(STORAGE_KEYS.facebook, DEFAULT_FACEBOOK),
 });
 
 const loadAdminState = async () => ({
-  drafts: await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []),
+  drafts: await listStoredDrafts<DraftRecord>(),
   metaConfig: await readJsonSetting<MetaConfig>(STORAGE_KEYS.meta, DEFAULT_META),
 });
 
 const seedContentIfNeeded = async () => {
   const publicState = await loadPublicState();
   if (publicState.articles.length === 0) {
-    await setJsonSetting(STORAGE_KEYS.articles, INITIAL_ARTICLES);
+    const optimizedInitialArticles = await Promise.all(INITIAL_ARTICLES.map((article) => normalizeStoredImageFields(article)));
+    await replaceStoredArticles(optimizedInitialArticles);
   }
 
   if (!publicState.ads || Object.keys(publicState.ads).length === 0) {
@@ -342,10 +576,6 @@ const seedContentIfNeeded = async () => {
   }
 
   const adminState = await loadAdminState();
-  if (!adminState.drafts) {
-    await setJsonSetting(STORAGE_KEYS.drafts, []);
-  }
-
   if (!adminState.metaConfig || Object.keys(adminState.metaConfig).length === 0) {
     await setJsonSetting(STORAGE_KEYS.meta, DEFAULT_META);
   }
@@ -355,18 +585,18 @@ const cleanupEmbeddedImages = async () => {
   const publicState = await loadPublicState();
   const adminState = await loadAdminState();
 
-  const cleanedArticles = publicState.articles.map((article) => sanitizeStoredImageFields(article));
-  const cleanedDrafts = adminState.drafts.map((draft) => sanitizeStoredImageFields(draft));
+  const cleanedArticles = await Promise.all(publicState.articles.map((article) => normalizeStoredImageFields(article)));
+  const cleanedDrafts = await Promise.all(adminState.drafts.map((draft) => normalizeStoredImageFields(draft)));
 
   const articlesChanged = JSON.stringify(cleanedArticles) !== JSON.stringify(publicState.articles);
   const draftsChanged = JSON.stringify(cleanedDrafts) !== JSON.stringify(adminState.drafts);
 
   if (articlesChanged) {
-    await setJsonSetting(STORAGE_KEYS.articles, cleanedArticles);
+    await replaceStoredArticles(cleanedArticles);
   }
 
   if (draftsChanged) {
-    await setJsonSetting(STORAGE_KEYS.drafts, cleanedDrafts);
+    await replaceStoredDrafts(cleanedDrafts);
   }
 };
 
@@ -543,11 +773,117 @@ const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?
   return storyData;
 };
 
+const mimeToExtension = (mimeType: string) => {
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/jpg') return 'jpg';
+  if (mimeType === 'image/gif') return 'gif';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'img';
+};
+
+const uploadMediaAsset = async (name: string, dataUrl: string) => {
+  const { mimeType, buffer } = parseDataUrl(dataUrl);
+  const baseId = crypto.createHash('sha1').update(buffer).digest('hex');
+  const safeName = slugify(name || 'upload');
+  const extension = mimeToExtension(mimeType);
+  const originalRelative = `uploads/originals/${baseId}.${extension}`;
+  const originalFilePath = path.join(MEDIA_DIR, originalRelative);
+  const optimizedRelative = `uploads/${baseId}-optimized.webp`;
+  const optimizedFilePath = path.join(MEDIA_DIR, optimizedRelative);
+
+  await ensureParentDir(originalFilePath);
+  await ensureParentDir(optimizedFilePath);
+
+  await fs.writeFile(originalFilePath, buffer);
+
+  const image = sharp(buffer).resize(1600, 1600, {
+    fit: 'inside',
+    withoutEnlargement: true,
+  });
+  const optimizedBuffer = await image.webp({ quality: 82 }).toBuffer();
+  await fs.writeFile(optimizedFilePath, optimizedBuffer);
+
+  const metadata = await sharp(buffer).metadata();
+  const assetName = safeName === 'upload' ? baseId : safeName;
+  const record = {
+    id: baseId,
+    name: assetName,
+    source_url: `${MEDIA_URL_PREFIX}/${originalRelative}`,
+    optimized_url: `${MEDIA_URL_PREFIX}/${optimizedRelative}`,
+    kind: 'upload',
+    width: metadata.width || 0,
+    height: metadata.height || 0,
+    mime_type: 'image/webp',
+    size_bytes: optimizedBuffer.length,
+  };
+
+  await upsertMediaAsset(record);
+  return record;
+};
+
+const regenerateMediaAsset = async (assetId: string) => {
+  const asset = await getMediaAsset(assetId);
+  if (!asset) {
+    throw new Error('Media asset not found.');
+  }
+
+  const optimizedPath = mediaUrlToFilePath(asset.optimized_url);
+  await fs.rm(optimizedPath, { force: true });
+  await ensureParentDir(optimizedPath);
+  const sourceBuffer = await fetchImageBuffer(asset.source_url);
+  await sharp(sourceBuffer)
+    .resize(asset.width || 1200, asset.height || 800, { fit: 'cover' })
+    .webp({ quality: 82 })
+    .toFile(optimizedPath);
+
+  await recordMediaAsset({
+    name: asset.name,
+    sourceUrl: asset.source_url,
+    optimizedUrl: asset.optimized_url,
+    kind: asset.kind,
+    width: asset.width || 0,
+    height: asset.height || 0,
+    mimeType: 'image/webp',
+  });
+
+  return getMediaAsset(assetId);
+};
+
+type MediaAssetView = {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  optimizedUrl: string;
+  kind: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const toMediaAssetView = (asset: MediaAssetRecord): MediaAssetView => ({
+  id: asset.id,
+  name: asset.name,
+  sourceUrl: asset.source_url,
+  optimizedUrl: asset.optimized_url,
+  kind: asset.kind,
+  width: asset.width,
+  height: asset.height,
+  mimeType: asset.mime_type,
+  sizeBytes: Number(asset.size_bytes),
+  createdAt: asset.created_at,
+  updatedAt: asset.updated_at,
+});
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
+  app.use('/media', express.static(MEDIA_DIR, { immutable: true, maxAge: '365d' }));
 
   await seedContentIfNeeded();
   await cleanupEmbeddedImages();
@@ -851,13 +1187,24 @@ async function startServer() {
       } catch (portraitError) {
         console.warn("Portrait image generation failed, using placeholder:", portraitError);
       }
+
+      const optimizedMedia = await normalizeStoredImageFields({
+        id: data.title || category,
+        title: data.title || category,
+        imageUrl,
+        portraitImageUrl,
+        imageSourceUrl: imageUrl,
+        portraitImageSourceUrl: portraitImageUrl,
+      });
       
       res.json({
         ...data,
         category,
         publishedAt: new Date().toISOString(),
-        imageUrl,
-        portraitImageUrl,
+        imageUrl: optimizedMedia.imageUrl,
+        portraitImageUrl: optimizedMedia.portraitImageUrl,
+        imageSourceUrl: optimizedMedia.imageSourceUrl,
+        portraitImageSourceUrl: optimizedMedia.portraitImageSourceUrl,
         imageSubject,
         provider: "OpenAI"
       });
@@ -869,12 +1216,20 @@ async function startServer() {
         try {
           console.log("Falling back to Gemini...");
           const data = await generateWithGemini();
+          const optimizedMedia = await normalizeStoredImageFields({
+            id: data.title || category,
+            title: data.title || category,
+            imageUrl: `https://picsum.photos/seed/${encodeURIComponent(slugify(data.title || category))}/1200/800`,
+            portraitImageUrl: `https://picsum.photos/seed/${encodeURIComponent(`${slugify(data.title || category)}-portrait`)}/1024/1792`,
+          });
           return res.json({
             ...data,
             category,
             publishedAt: new Date().toISOString(),
-            imageUrl: `https://picsum.photos/seed/${encodeURIComponent(slugify(data.title || category))}/1200/800`,
-            portraitImageUrl: `https://picsum.photos/seed/${encodeURIComponent(`${slugify(data.title || category)}-portrait`)}/1024/1792`,
+            imageUrl: optimizedMedia.imageUrl,
+            portraitImageUrl: optimizedMedia.portraitImageUrl,
+            imageSourceUrl: optimizedMedia.imageSourceUrl,
+            portraitImageSourceUrl: optimizedMedia.portraitImageSourceUrl,
             imageSubject: data.imageSubject || data.imageKeyword || data.title || category,
             provider: "Gemini (Fallback)",
             warning: "OpenAI quota exceeded. Used Gemini fallback."
@@ -931,13 +1286,8 @@ async function startServer() {
         return res.status(400).json({ saved: false, message: "Missing draft id." });
       }
 
-      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
-      const safeDraft = sanitizeStoredImageFields(draft);
-      const nextDrafts = drafts.some((item) => item.id === safeDraft.id)
-        ? drafts.map((item) => (item.id === safeDraft.id ? { ...item, ...safeDraft } : item))
-        : [safeDraft, ...drafts];
-
-      await setJsonSetting(STORAGE_KEYS.drafts, nextDrafts);
+      const safeDraft = await normalizeStoredImageFields(draft);
+      await upsertStoredDraft(safeDraft);
       return res.json({ saved: true, draft: safeDraft });
     } catch (error: any) {
       console.error("Failed to save draft:", error);
@@ -958,13 +1308,8 @@ async function startServer() {
         return res.status(400).json({ saved: false, message: "Missing article id." });
       }
 
-      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
-      const safeArticle = sanitizeStoredImageFields(article);
-      const nextArticles = articles.some((item) => item.id === safeArticle.id)
-        ? articles.map((item) => (item.id === safeArticle.id ? { ...item, ...safeArticle } : item))
-        : [safeArticle, ...articles];
-
-      await setJsonSetting(STORAGE_KEYS.articles, nextArticles);
+      const safeArticle = await normalizeStoredImageFields(article);
+      await upsertStoredArticle(safeArticle);
       return res.json({ saved: true, article: safeArticle });
     } catch (error: any) {
       console.error("Failed to save article:", error);
@@ -981,9 +1326,7 @@ async function startServer() {
 
     try {
       const { id } = req.params;
-      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
-      const nextDrafts = drafts.filter((draft) => draft.id !== id);
-      await setJsonSetting(STORAGE_KEYS.drafts, nextDrafts);
+      await deleteStoredDraft(id);
       return res.json({ deleted: true });
     } catch (error: any) {
       console.error("Failed to delete draft:", error);
@@ -1000,7 +1343,7 @@ async function startServer() {
 
     try {
       const { id } = req.params;
-      const drafts = await readJsonSetting<DraftRecord[]>(STORAGE_KEYS.drafts, []);
+      const drafts = await listStoredDrafts<DraftRecord>();
       const draft = drafts.find((item) => item.id === id);
       if (!draft) {
         return res.status(404).json({ published: false, message: "Draft not found." });
@@ -1026,15 +1369,10 @@ async function startServer() {
         facebookStoryPostId: draft.facebookStoryPostId,
       };
 
-      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
-      const safeArticle = sanitizeStoredImageFields(article);
-      const nextArticles = articles.some((item) => item.id === safeArticle.id)
-        ? articles.map((item) => (item.id === safeArticle.id ? safeArticle : item))
-        : [safeArticle, ...articles];
-
+      const safeArticle = await normalizeStoredImageFields(article);
       await Promise.all([
-        setJsonSetting(STORAGE_KEYS.articles, nextArticles),
-        setJsonSetting(STORAGE_KEYS.drafts, drafts.filter((item) => item.id !== id)),
+        upsertStoredArticle(safeArticle),
+        deleteStoredDraft(id),
       ]);
 
       return res.json({ published: true, article: safeArticle });
@@ -1053,9 +1391,7 @@ async function startServer() {
 
     try {
       const { id } = req.params;
-      const articles = await readJsonSetting<ArticleRecord[]>(STORAGE_KEYS.articles, []);
-      const nextArticles = articles.filter((article) => article.id !== id);
-      await setJsonSetting(STORAGE_KEYS.articles, nextArticles);
+      await deleteStoredArticle(id);
       return res.json({ deleted: true });
     } catch (error: any) {
       console.error("Failed to delete article:", error);
@@ -1072,8 +1408,8 @@ async function startServer() {
 
     try {
       await Promise.all([
-        setJsonSetting(STORAGE_KEYS.articles, []),
-        setJsonSetting(STORAGE_KEYS.drafts, []),
+        replaceStoredArticles([]),
+        replaceStoredDrafts([]),
       ]);
 
       return res.json({
@@ -1139,6 +1475,78 @@ async function startServer() {
       return res.status(500).json({
         saved: false,
         message: error.message || "Failed to save meta config.",
+      });
+    }
+  });
+
+  app.get("/api/media/library", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const assets = await listMediaAssets();
+      return res.json({
+        assets: assets.map((asset) => toMediaAssetView(asset)),
+      });
+    } catch (error: any) {
+      console.error("Failed to load media library:", error);
+      return res.status(500).json({
+        message: error.message || "Failed to load media library.",
+      });
+    }
+  });
+
+  app.post("/api/media/upload", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { name, dataUrl } = req.body as { name?: string; dataUrl?: string };
+      if (!name || !dataUrl) {
+        return res.status(400).json({
+          uploaded: false,
+          message: "Missing upload data.",
+        });
+      }
+
+      const asset = await uploadMediaAsset(name, dataUrl);
+      const storedAsset = await getMediaAsset(asset.id);
+      return res.json({
+        uploaded: true,
+        asset: storedAsset ? toMediaAssetView(storedAsset) : null,
+      });
+    } catch (error: any) {
+      console.error("Failed to upload media asset:", error);
+      return res.status(500).json({
+        uploaded: false,
+        message: error.message || "Failed to upload media asset.",
+      });
+    }
+  });
+
+  app.post("/api/media/regenerate/:id", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    try {
+      const { id } = req.params;
+      const asset = await regenerateMediaAsset(id);
+      if (!asset) {
+        return res.status(404).json({
+          regenerated: false,
+          message: "Media asset not found.",
+        });
+      }
+
+      return res.json({
+        regenerated: true,
+        asset: toMediaAssetView(asset),
+      });
+    } catch (error: any) {
+      console.error("Failed to regenerate media asset:", error);
+      return res.status(500).json({
+        regenerated: false,
+        message: error.message || "Failed to regenerate media asset.",
       });
     }
   });
