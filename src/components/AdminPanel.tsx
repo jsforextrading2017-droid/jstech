@@ -49,6 +49,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [metaTestResult, setMetaTestResult] = React.useState<{ pageName?: string; tokenType?: string; scopes?: string[]; message?: string } | null>(null);
   const [isPublishingTest, setIsPublishingTest] = React.useState(false);
   const [openaiKey, setOpenaiKey] = React.useState('');
+  const [republishingArticleId, setRepublishingArticleId] = React.useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
@@ -233,6 +234,76 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     onArticlesUpdate();
     await refreshMediaLibrary();
     toast.info("Article deleted.");
+  };
+
+  const handleRepublishStory = async (article: Article) => {
+    const hasMetaConfig = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
+    if (!hasMetaConfig) {
+      toast.error("Meta credentials are required to publish a story.");
+      return;
+    }
+
+    setRepublishingArticleId(article.id);
+    try {
+      const result = await publishFacebookStory({
+        title: article.title,
+        summary: article.summary,
+        category: article.category,
+        imageUrl: article.imageUrl,
+        portraitImageUrl: article.portraitImageUrl,
+        imageSourceUrl: article.imageSourceUrl,
+        portraitImageSourceUrl: article.portraitImageSourceUrl,
+        storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        articleUrl: buildArticleUrl(article.id),
+        isBreaking: Boolean(article.isBreaking),
+      });
+
+      const postId =
+        typeof result?.result === 'object' && result.result
+          ? (result.result as { post_id?: string; id?: string }).post_id || (result.result as { post_id?: string; id?: string }).id
+          : undefined;
+
+      const updatedArticle: Article = {
+        ...article,
+        facebookStoryStatus: 'posted',
+        facebookStoryPublishedAt: new Date().toISOString(),
+        facebookStoryError: undefined,
+        facebookStoryPostId: postId,
+      };
+
+      const savedArticle = await storage.saveArticle(updatedArticle);
+      setArticles((current) =>
+        current.map((item) => (item.id === savedArticle.id ? savedArticle : item))
+      );
+      onArticlesUpdate();
+      toast.success(`Republished "${article.title}" to Facebook Story.`);
+    } catch (error) {
+      console.error("Republish to story failed:", error);
+
+      const failedArticle: Article = {
+        ...article,
+        facebookStoryStatus: 'failed',
+        facebookStoryError: error instanceof Error ? error.message : 'Facebook Story publish failed.',
+      };
+
+      try {
+        const savedArticle = await storage.saveArticle(failedArticle);
+        setArticles((current) =>
+          current.map((item) => (item.id === savedArticle.id ? savedArticle : item))
+        );
+        onArticlesUpdate();
+      } catch (persistError) {
+        console.error("Failed to persist story publish failure:", persistError);
+      }
+
+      toast.error(error instanceof Error ? error.message : "Failed to republish story.");
+    } finally {
+      setRepublishingArticleId(null);
+    }
   };
 
   const handleResetContent = async () => {
@@ -586,6 +657,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                         <h3 className="font-bold text-lg">{article.title}</h3>
                         <p className="text-sm text-muted-foreground line-clamp-1">{article.summary}</p>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        disabled={republishingArticleId === article.id}
+                        onClick={() => handleRepublishStory(article)}
+                      >
+                        {republishingArticleId === article.id ? (
+                          <Loader2 className="animate-spin" size={14} />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                        Republish to Story
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
