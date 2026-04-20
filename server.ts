@@ -645,18 +645,18 @@ const createStoryOverlaySvg = (payload: {
     <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
       <defs>
         <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="rgba(0,0,0,0.16)" />
-          <stop offset="42%" stop-color="rgba(0,0,0,0.08)" />
-          <stop offset="72%" stop-color="rgba(0,0,0,0.20)" />
-          <stop offset="100%" stop-color="rgba(3,7,18,0.96)" />
+          <stop offset="0%" stop-color="#000000" stop-opacity="0.00" />
+          <stop offset="42%" stop-color="#000000" stop-opacity="0.10" />
+          <stop offset="72%" stop-color="#000000" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="#030712" stop-opacity="0.96" />
         </linearGradient>
         <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stop-color="#f97316" />
           <stop offset="100%" stop-color="#ef4444" />
         </linearGradient>
       </defs>
-      <rect width="1080" height="1920" fill="#08111d" />
       <rect width="1080" height="1920" fill="url(#fade)" />
+      <rect x="0" y="0" width="1080" height="760" fill="#000000" fill-opacity="0.08" />
       <rect x="72" y="76" width="160" height="8" rx="4" fill="url(#accent)" />
       <rect x="72" y="118" width="268" height="54" rx="16" fill="rgba(255,255,255,0.10)" />
       <text x="96" y="155" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
@@ -690,21 +690,7 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
     throw new Error('Missing story background image');
   }
 
-  let bgBuffer: Buffer;
-  if (bgUrl.startsWith('data:')) {
-    const match = bgUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) {
-      throw new Error('Failed to parse embedded story background image');
-    }
-    bgBuffer = Buffer.from(match[2], 'base64');
-  } else {
-    const imageResponse = await fetch(bgUrl);
-    if (!imageResponse.ok) {
-      throw new Error('Failed to load story background image');
-    }
-
-    bgBuffer = Buffer.from(await imageResponse.arrayBuffer());
-  }
+  const bgBuffer = await fetchImageBuffer(bgUrl);
 
   const base = sharp(bgBuffer)
     .resize(1080, 1920, { fit: 'cover' })
