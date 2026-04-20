@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
 import OpenAI from "openai";
+import QRCode from "qrcode";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import dotenv from "dotenv";
@@ -608,6 +609,7 @@ const createStoryOverlaySvg = (payload: {
   storyLinkLabel: string;
   pageName: string;
   articleUrl?: string;
+  qrDataUrl?: string;
   isBreaking?: boolean;
 }) => {
   const escape = (value: string) =>
@@ -636,6 +638,7 @@ const createStoryOverlaySvg = (payload: {
   };
 
   const safeUrl = payload.articleUrl?.trim() ? escape(payload.articleUrl.trim()) : '';
+  const qrDataUrl = payload.qrDataUrl?.trim() ? payload.qrDataUrl.trim() : '';
   const titleLines = wrapLine(payload.title, 18).slice(0, 3);
   const summaryLines = wrapLine(payload.summary, 34).slice(0, 3);
   const titleStartY = payload.isBreaking ? 1512 : 1480;
@@ -677,11 +680,15 @@ const createStoryOverlaySvg = (payload: {
             `<text x="540" y="${summaryStartY + index * 38}" text-anchor="middle" fill="rgba(255,255,255,0.92)" font-size="28" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
         )
         .join('')}
-      <rect x="330" y="1708" width="420" height="58" rx="19" fill="rgba(249,115,22,0.24)" stroke="rgba(249,115,22,0.50)" />
-      <text x="540" y="1745" text-anchor="middle" fill="#ffffff" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
-      <text x="540" y="1812" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
-      <text x="540" y="1850" text-anchor="middle" fill="rgba(255,255,255,0.72)" font-size="22" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
-      ${safeUrl ? `<text x="540" y="1884" text-anchor="middle" fill="rgba(255,255,255,0.52)" font-size="18" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
+      <rect x="108" y="1690" width="296" height="82" rx="20" fill="rgba(249,115,22,0.24)" stroke="rgba(249,115,22,0.50)" />
+      <text x="256" y="1722" text-anchor="middle" fill="#ffffff" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
+      <text x="256" y="1752" text-anchor="middle" fill="rgba(255,255,255,0.78)" font-size="18" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
+      <rect x="770" y="1640" width="202" height="202" rx="18" fill="#ffffff" stroke="rgba(255,255,255,0.22)" />
+      ${qrDataUrl ? `<image href="${qrDataUrl}" x="786" y="1656" width="170" height="170" preserveAspectRatio="xMidYMid meet" />` : ''}
+      <text x="871" y="1860" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="18" font-family="Arial, Helvetica, sans-serif" font-weight="700">SCAN TO READ</text>
+      ${safeUrl ? `<text x="540" y="1826" text-anchor="middle" fill="rgba(255,255,255,0.72)" font-size="22" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
+      <text x="540" y="1862" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
+      <text x="540" y="1892" text-anchor="middle" fill="rgba(255,255,255,0.58)" font-size="18" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
     </svg>
   `;
 };
@@ -693,6 +700,17 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
   }
 
   const bgBuffer = await fetchImageBuffer(bgUrl);
+  const qrDataUrl = payload.articleUrl?.trim()
+    ? await QRCode.toDataURL(payload.articleUrl.trim(), {
+        width: 170,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      })
+    : '';
 
   const base = sharp(bgBuffer)
     .resize(1080, 1920, { fit: 'cover' })
@@ -706,6 +724,7 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
       storyLinkLabel: payload.storyLinkLabel || 'Swipe up to read',
       pageName: payload.pageName || 'jshubnetwork',
       articleUrl: payload.articleUrl,
+      qrDataUrl,
       isBreaking: payload.isBreaking,
     })
   );

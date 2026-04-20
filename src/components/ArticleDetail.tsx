@@ -5,6 +5,7 @@ import { ArrowLeft, Share2, Bookmark, Clock, User, Download, Facebook, Copy } fr
 import ReactMarkdown from 'react-markdown';
 import { Separator } from './ui/separator';
 import { AdBanner } from './AdBanner';
+import QRCode from 'qrcode';
 
 interface ArticleDetailProps {
   article: Article;
@@ -74,6 +75,21 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig,
     }
 
     const image = await loadImage(imageSource);
+    const articleUrl = `${window.location.origin}/?post=${encodeURIComponent(article.id)}`;
+    let qrDataUrl = '';
+    try {
+      qrDataUrl = await QRCode.toDataURL(articleUrl, {
+        width: 170,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to generate QR code for story image.', error);
+    }
 
     const targetRatio = canvas.width / canvas.height;
     const sourceRatio = image.width / image.height;
@@ -156,21 +172,46 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig,
     ctx.fillStyle = 'rgba(249,115,22,0.24)';
     ctx.strokeStyle = 'rgba(249,115,22,0.4)';
     ctx.beginPath();
-    ctx.roundRect(330, 1708, 420, 58, 19);
+    ctx.roundRect(108, 1690, 296, 82, 20);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '800 26px Arial, sans-serif';
-    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 540, 1745);
+    ctx.font = '800 22px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 256, 1722);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.font = '700 18px Arial, sans-serif';
+    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 256, 1752);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath();
+    ctx.roundRect(770, 1640, 202, 202, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    if (qrDataUrl) {
+      const qrImage = await loadImage(qrDataUrl);
+      ctx.drawImage(qrImage, 786, 1656, 170, 170);
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.84)';
+    ctx.font = '700 18px Arial, sans-serif';
+    ctx.fillText('SCAN TO READ', 871, 1860);
 
     ctx.fillStyle = 'rgba(255,255,255,0.82)';
     ctx.font = '400 24px Arial, sans-serif';
-    ctx.fillText(facebookConfig.pageName, 540, 1812);
+    ctx.fillText(facebookConfig.pageName, 540, 1826);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.70)';
-    ctx.font = '700 22px Arial, sans-serif';
-    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 540, 1850);
+    ctx.fillStyle = 'rgba(255,255,255,0.72)';
+    ctx.font = '400 22px Arial, sans-serif';
+    ctx.fillText(articleUrl, 540, 1858);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.58)';
+    ctx.font = '700 18px Arial, sans-serif';
+    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 540, 1892);
 
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {
