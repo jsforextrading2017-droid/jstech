@@ -128,7 +128,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig,
       ctx.fillText('BREAKING', 98, 228);
     }
 
-    ctx.fillStyle = 'rgba(3, 7, 18, 0.64)';
+    ctx.fillStyle = 'rgba(3, 7, 18, 0.84)';
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -137,39 +137,40 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig,
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 64px Georgia, serif';
-    const titleLines = wrapText(ctx, article.title, 936).slice(0, 5);
-    const titleStartY = article.isBreaking ? 286 : 226;
+    ctx.font = '800 46px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    const titleLines = wrapText(ctx, article.title, 830).slice(0, 3);
+    const titleStartY = article.isBreaking ? 1512 : 1480;
     titleLines.forEach((line, index) => {
-      ctx.fillText(line, 108, titleStartY + index * 74);
+      ctx.fillText(line, 540, titleStartY + index * 54);
     });
 
     ctx.fillStyle = 'rgba(255,255,255,0.90)';
-    ctx.font = '400 32px Arial, sans-serif';
-    const summaryLines = wrapText(ctx, article.summary, 936).slice(0, 4);
-    const summaryStartY = titleStartY + titleLines.length * 74 + 24;
+    ctx.font = '400 28px Arial, sans-serif';
+    const summaryLines = wrapText(ctx, article.summary, 820).slice(0, 3);
+    const summaryStartY = titleStartY + titleLines.length * 54 + 18;
     summaryLines.forEach((line, index) => {
-      ctx.fillText(line, 108, summaryStartY + index * 44);
+      ctx.fillText(line, 540, summaryStartY + index * 38);
     });
 
-    ctx.fillStyle = 'rgba(249,115,22,0.18)';
+    ctx.fillStyle = 'rgba(249,115,22,0.24)';
     ctx.strokeStyle = 'rgba(249,115,22,0.4)';
     ctx.beginPath();
-    ctx.roundRect(108, 1736, 378, 56, 18);
+    ctx.roundRect(330, 1708, 420, 58, 19);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '800 26px Arial, sans-serif';
-    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 132, 1772);
+    ctx.fillText(facebookConfig.storyCtaText.toUpperCase(), 540, 1745);
 
     ctx.fillStyle = 'rgba(255,255,255,0.82)';
     ctx.font = '400 24px Arial, sans-serif';
-    ctx.fillText(facebookConfig.pageName, 108, 1830);
+    ctx.fillText(facebookConfig.pageName, 540, 1812);
 
     ctx.fillStyle = 'rgba(255,255,255,0.70)';
     ctx.font = '700 22px Arial, sans-serif';
-    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 108, 1868);
+    ctx.fillText(facebookConfig.storyLinkLabel.toUpperCase(), 540, 1850);
 
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {

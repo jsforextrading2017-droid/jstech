@@ -636,10 +636,10 @@ const createStoryOverlaySvg = (payload: {
   };
 
   const safeUrl = payload.articleUrl?.trim() ? escape(payload.articleUrl.trim()) : '';
-  const titleLines = wrapLine(payload.title, 20).slice(0, 4);
-  const summaryLines = wrapLine(payload.summary, 36).slice(0, 4);
-  const titleStartY = payload.isBreaking ? 1510 : 1478;
-  const summaryStartY = titleStartY + titleLines.length * 58 + 18;
+  const titleLines = wrapLine(payload.title, 18).slice(0, 3);
+  const summaryLines = wrapLine(payload.summary, 34).slice(0, 3);
+  const titleStartY = payload.isBreaking ? 1512 : 1480;
+  const summaryStartY = titleStartY + titleLines.length * 54 + 18;
 
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
@@ -662,26 +662,26 @@ const createStoryOverlaySvg = (payload: {
       <text x="96" y="155" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
       ${payload.isBreaking ? `<rect x="72" y="194" width="190" height="48" rx="10" fill="#dc2626" />` : ''}
       ${payload.isBreaking ? `<text x="98" y="228" fill="#ffffff" font-size="24" font-family="Arial, Helvetica, sans-serif" font-weight="700">BREAKING</text>` : ''}
-      <rect x="72" y="1368" width="936" height="432" rx="34" fill="rgba(3,7,18,0.78)" stroke="rgba(255,255,255,0.12)" />
+      <rect x="72" y="1368" width="936" height="432" rx="34" fill="rgba(3,7,18,0.84)" stroke="rgba(255,255,255,0.12)" />
       <rect x="108" y="1410" width="200" height="44" rx="14" fill="rgba(255,255,255,0.10)" />
       <text x="132" y="1441" fill="rgba(255,255,255,0.88)" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700">${escape(payload.category.toUpperCase())}</text>
       ${titleLines
         .map(
           (line, index) =>
-            `<text x="108" y="${titleStartY + index * 58}" fill="#ffffff" font-size="50" font-family="Arial, Helvetica, sans-serif" font-weight="800" letter-spacing="-0.02em">${escape(line)}</text>`
+            `<text x="540" y="${titleStartY + index * 54}" text-anchor="middle" fill="#ffffff" font-size="46" font-family="Arial, Helvetica, sans-serif" font-weight="800" letter-spacing="-0.02em">${escape(line)}</text>`
         )
         .join('')}
       ${summaryLines
         .map(
           (line, index) =>
-            `<text x="108" y="${summaryStartY + index * 40}" fill="rgba(255,255,255,0.92)" font-size="28" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
+            `<text x="540" y="${summaryStartY + index * 38}" text-anchor="middle" fill="rgba(255,255,255,0.92)" font-size="28" font-family="Arial, Helvetica, sans-serif">${escape(line)}</text>`
         )
         .join('')}
-      <rect x="108" y="1718" width="378" height="56" rx="18" fill="rgba(249,115,22,0.22)" stroke="rgba(249,115,22,0.50)" />
-      <text x="132" y="1754" fill="#ffffff" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
-      <text x="108" y="1812" fill="rgba(255,255,255,0.82)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
-      <text x="108" y="1850" fill="rgba(255,255,255,0.72)" font-size="22" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
-      ${safeUrl ? `<text x="108" y="1884" fill="rgba(255,255,255,0.52)" font-size="18" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
+      <rect x="330" y="1708" width="420" height="58" rx="19" fill="rgba(249,115,22,0.24)" stroke="rgba(249,115,22,0.50)" />
+      <text x="540" y="1745" text-anchor="middle" fill="#ffffff" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
+      <text x="540" y="1812" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
+      <text x="540" y="1850" text-anchor="middle" fill="rgba(255,255,255,0.72)" font-size="22" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
+      ${safeUrl ? `<text x="540" y="1884" text-anchor="middle" fill="rgba(255,255,255,0.52)" font-size="18" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
     </svg>
   `;
 };
