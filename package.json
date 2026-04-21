@@ -8,6 +8,7 @@
     "start": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "postinstall": "playwright install chromium",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

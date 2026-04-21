@@ -812,12 +812,26 @@ const launchFacebookComposerSession = async () => {
       args: ['--start-maximized'],
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const missingBrowser = message.includes("Executable doesn't exist") || message.includes('Looks like Playwright was just installed or updated');
+    if (missingBrowser) {
+      throw new Error('Playwright browser is not installed. Run `npm install` so the postinstall browser download can complete, or run `npx playwright install chromium` on the server.');
+    }
+
     console.warn('Chrome channel launch failed, falling back to bundled Chromium.', error);
-    facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-      headless: false,
-      viewport: null,
-      args: ['--start-maximized'],
-    });
+    try {
+      facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
+        headless: false,
+        viewport: null,
+        args: ['--start-maximized'],
+      });
+    } catch (fallbackError) {
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      if (fallbackMessage.includes("Executable doesn't exist")) {
+        throw new Error('Playwright browser is not installed. Run `npm install` so the postinstall browser download can complete, or run `npx playwright install chromium` on the server.');
+      }
+      throw fallbackError;
+    }
   }
   facebookBrowserContext.setDefaultTimeout(45000);
   facebookBrowserContext.on('close', () => {
