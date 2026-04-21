@@ -200,6 +200,37 @@ export async function publishFacebookStory(payload: {
   return data;
 }
 
+export async function openFacebookStoryComposer(payload: {
+  title: string;
+  summary: string;
+  category: string;
+  imageUrl: string;
+  portraitImageUrl?: string;
+  imageSourceUrl?: string;
+  portraitImageSourceUrl?: string;
+  storyCtaText: string;
+  storyLinkLabel: string;
+  pageName: string;
+  pageId: string;
+  pageAccessToken: string;
+  articleUrl?: string;
+  isBreaking?: boolean;
+}): Promise<{ opened: boolean; needsLogin?: boolean; message?: string; actions?: string[] }> {
+  const response = await fetch('/api/meta/open-story-composer', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  const { raw, data } = await parseResponseBody<{ opened: boolean; needsLogin?: boolean; message?: string; actions?: string[] }>(response);
+  if (!response.ok) {
+    const details = (data as any).message || (data as any).error || (data as any).raw || raw;
+    throw new Error(String(details || 'Failed to open Facebook story composer'));
+  }
+
+  return data;
+}
+
 export async function testFacebookStoryPublish(payload: {
   pageId: string;
   pageAccessToken: string;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testFacebookStoryPublish, testMetaConnection, logoutAdmin, publishFacebookStory, loadMediaLibrary, uploadMediaAsset, regenerateMediaAsset } from '../lib/newsApi';
+import { changeAdminPassword, generateNewsArticle, checkAIStatus, clearOpenAIKey, saveOpenAIKey, testFacebookStoryPublish, testMetaConnection, logoutAdmin, publishFacebookStory, openFacebookStoryComposer, loadMediaLibrary, uploadMediaAsset, regenerateMediaAsset } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { Article, Category, AdConfig, AiConfig, DraftArticle, FacebookConfig, MediaAsset, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -301,6 +301,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       }
 
       toast.error(error instanceof Error ? error.message : "Failed to republish story.");
+    } finally {
+      setRepublishingArticleId(null);
+    }
+  };
+
+  const handleOpenStoryComposer = async (article: Article) => {
+    const hasMetaConfig = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
+    if (!hasMetaConfig) {
+      toast.error("Meta credentials are required to open the composer.");
+      return;
+    }
+
+    setRepublishingArticleId(article.id);
+    try {
+      const result = await openFacebookStoryComposer({
+        title: article.title,
+        summary: article.summary,
+        category: article.category,
+        imageUrl: article.imageUrl,
+        portraitImageUrl: article.portraitImageUrl,
+        imageSourceUrl: article.imageSourceUrl,
+        portraitImageSourceUrl: article.portraitImageSourceUrl,
+        storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        articleUrl: buildArticleUrl(article.id),
+        isBreaking: Boolean(article.isBreaking),
+      });
+
+      if (result.needsLogin) {
+        toast.info(result.message || "Facebook login is required in the browser window.");
+      } else {
+        toast.success(result.message || "Facebook story composer opened.");
+      }
+    } catch (error) {
+      console.error("Open story composer failed:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to open story composer.");
     } finally {
       setRepublishingArticleId(null);
     }
@@ -670,6 +709,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                           <RefreshCw size={14} />
                         )}
                         Republish to Story
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="gap-2"
+                        disabled={republishingArticleId === article.id}
+                        onClick={() => handleOpenStoryComposer(article)}
+                      >
+                        <Facebook size={14} />
+                        Open Composer
                       </Button>
                       <Button
                         variant="ghost"

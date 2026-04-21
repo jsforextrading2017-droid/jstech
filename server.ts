@@ -3,11 +3,12 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
 import OpenAI from "openai";
-import QRCode from "qrcode";
+import { chromium, type BrowserContext, type Page } from "playwright";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import os from "os";
 import {
   clearOpenAIKey,
   cleanupExpiredAdminSessions,
@@ -278,6 +279,11 @@ const generateImageUrl = async (
 };
 
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v24.0";
+const FACEBOOK_PROFILE_DIR = path.join(process.cwd(), ".facebook-browser-profile");
+const STORY_WORK_DIR = path.join(os.tmpdir(), "news-story-composer");
+
+let facebookBrowserContext: BrowserContext | null = null;
+let facebookBrowserPage: Page | null = null;
 
 const safeReadJson = async (response: Response) => {
   const text = await response.text();
@@ -609,7 +615,6 @@ const createStoryOverlaySvg = (payload: {
   storyLinkLabel: string;
   pageName: string;
   articleUrl?: string;
-  qrDataUrl?: string;
   isBreaking?: boolean;
 }) => {
   const escape = (value: string) =>
@@ -637,8 +642,6 @@ const createStoryOverlaySvg = (payload: {
     return lines;
   };
 
-  const safeUrl = payload.articleUrl?.trim() ? escape(payload.articleUrl.trim()) : '';
-  const qrDataUrl = payload.qrDataUrl?.trim() ? payload.qrDataUrl.trim() : '';
   const titleLines = wrapLine(payload.title, 18).slice(0, 3);
   const summaryLines = wrapLine(payload.summary, 34).slice(0, 3);
   const titleStartY = payload.isBreaking ? 1512 : 1480;
@@ -683,10 +686,6 @@ const createStoryOverlaySvg = (payload: {
       <rect x="108" y="1690" width="296" height="82" rx="20" fill="rgba(249,115,22,0.24)" stroke="rgba(249,115,22,0.50)" />
       <text x="256" y="1722" text-anchor="middle" fill="#ffffff" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="800">${escape(payload.storyCtaText.toUpperCase())}</text>
       <text x="256" y="1752" text-anchor="middle" fill="rgba(255,255,255,0.78)" font-size="18" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
-      <rect x="770" y="1640" width="202" height="202" rx="18" fill="#ffffff" stroke="rgba(255,255,255,0.22)" />
-      ${qrDataUrl ? `<image href="${qrDataUrl}" x="786" y="1656" width="170" height="170" preserveAspectRatio="xMidYMid meet" />` : ''}
-      <text x="871" y="1860" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="18" font-family="Arial, Helvetica, sans-serif" font-weight="700">SCAN TO READ</text>
-      ${safeUrl ? `<text x="540" y="1826" text-anchor="middle" fill="rgba(255,255,255,0.72)" font-size="22" font-family="Arial, Helvetica, sans-serif">${safeUrl}</text>` : ''}
       <text x="540" y="1862" text-anchor="middle" fill="rgba(255,255,255,0.84)" font-size="24" font-family="Arial, Helvetica, sans-serif">${escape(payload.pageName)}</text>
       <text x="540" y="1892" text-anchor="middle" fill="rgba(255,255,255,0.58)" font-size="18" font-family="Arial, Helvetica, sans-serif">${escape(payload.storyLinkLabel.toUpperCase())}</text>
     </svg>
@@ -700,17 +699,6 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
   }
 
   const bgBuffer = await fetchImageBuffer(bgUrl);
-  const qrDataUrl = payload.articleUrl?.trim()
-    ? await QRCode.toDataURL(payload.articleUrl.trim(), {
-        width: 170,
-        margin: 1,
-        errorCorrectionLevel: 'M',
-        color: {
-          dark: '#000000',
-          light: '#ffffff',
-        },
-      })
-    : '';
 
   const base = sharp(bgBuffer)
     .resize(1080, 1920, { fit: 'cover' })
@@ -724,7 +712,6 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
       storyLinkLabel: payload.storyLinkLabel || 'Swipe up to read',
       pageName: payload.pageName || 'jshubnetwork',
       articleUrl: payload.articleUrl,
-      qrDataUrl,
       isBreaking: payload.isBreaking,
     })
   );
@@ -733,6 +720,203 @@ const renderStoryImage = async (payload: FacebookStoryPayload & { isBreaking?: b
     .composite([{ input: overlay }])
     .jpeg({ quality: 92 })
     .toBuffer();
+};
+
+const STORY_COMPOSER_PAGES = [
+  'Create a photo story',
+  'Create photo story',
+  'Create a story',
+  'Create story',
+];
+
+const STORY_COMPOSER_BUTTONS = [
+  'Add button',
+  'Add Link',
+  'Add link',
+  'Visit a linked site',
+  'Visit linked site',
+  'Link to website',
+];
+
+const STORY_COMPOSER_PUBLISH = [
+  'Share to story',
+  'Share',
+  'Post to story',
+  'Publish',
+  'Done',
+];
+
+const tryClickByText = async (page: Page, candidates: string[]) => {
+  for (const label of candidates) {
+    try {
+      const roleCandidates = [
+        page.getByRole('button', { name: new RegExp(label, 'i') }).first(),
+        page.getByRole('link', { name: new RegExp(label, 'i') }).first(),
+      ];
+
+      for (const locator of roleCandidates) {
+        if (await locator.isVisible()) {
+          await locator.click();
+          return label;
+        }
+      }
+
+      const locator = page.getByText(label, { exact: false }).first();
+      if (await locator.isVisible()) {
+        await locator.click();
+        return label;
+      }
+    } catch {
+      // Keep trying other labels.
+    }
+  }
+
+  return null;
+};
+
+const tryFillByPlaceholder = async (page: Page, patterns: RegExp[], value: string) => {
+  const inputs = page.locator('input[type="text"], textarea');
+  const total = await inputs.count();
+  for (let index = 0; index < total; index += 1) {
+    const field = inputs.nth(index);
+    try {
+      if (!(await field.isVisible())) {
+        continue;
+      }
+
+      const placeholder = await field.getAttribute('placeholder');
+      if (placeholder && patterns.some((pattern) => pattern.test(placeholder))) {
+        await field.fill(value);
+        return true;
+      }
+    } catch {
+      // Ignore and continue scanning.
+    }
+  }
+
+  return false;
+};
+
+const launchFacebookComposerSession = async () => {
+  await fs.mkdir(FACEBOOK_PROFILE_DIR, { recursive: true });
+
+  if (facebookBrowserContext && !facebookBrowserContext.isClosed()) {
+    return facebookBrowserContext;
+  }
+
+  try {
+    facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
+      headless: false,
+      viewport: null,
+      channel: 'chrome',
+      args: ['--start-maximized'],
+    });
+  } catch (error) {
+    console.warn('Chrome channel launch failed, falling back to bundled Chromium.', error);
+    facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
+      headless: false,
+      viewport: null,
+      args: ['--start-maximized'],
+    });
+  }
+  facebookBrowserContext.setDefaultTimeout(45000);
+  facebookBrowserContext.on('close', () => {
+    facebookBrowserContext = null;
+    facebookBrowserPage = null;
+  });
+
+  return facebookBrowserContext;
+};
+
+const openFacebookStoryComposer = async (
+  payload: FacebookStoryPayload & { isBreaking?: boolean }
+) => {
+  const context = await launchFacebookComposerSession();
+  const page = context.pages()[0] || (await context.newPage());
+  facebookBrowserPage = page;
+
+  const storyBuffer = await renderStoryImage(payload);
+  await fs.mkdir(STORY_WORK_DIR, { recursive: true });
+  const storyFileName = `${slugify(payload.title || 'story')}-story.jpg`;
+  const storyFilePath = path.join(STORY_WORK_DIR, storyFileName);
+  await fs.writeFile(storyFilePath, storyBuffer);
+
+  const destinationUrl =
+    payload.pageId?.trim()
+      ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
+      : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`;
+
+  await page.goto(destinationUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000);
+
+  const currentUrl = page.url();
+  if (/login|checkpoint/i.test(currentUrl)) {
+    return {
+      opened: true,
+      needsLogin: true,
+      message: 'Facebook login is required in the browser window. Log in once, then run this again.',
+      destinationUrl,
+    };
+  }
+
+  const actions: string[] = [];
+
+  const composerLabel =
+    (await tryClickByText(page, STORY_COMPOSER_PAGES)) || 'page feed';
+  actions.push(`Opened ${composerLabel}`);
+  await page.waitForTimeout(2000);
+
+  const fileInputs = page.locator('input[type="file"]');
+  if (await fileInputs.count()) {
+    try {
+      await fileInputs.first().setInputFiles(storyFilePath);
+      actions.push('Uploaded story image');
+    } catch (error) {
+      actions.push(`Image upload failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  } else {
+    actions.push('No file input found');
+  }
+
+  await page.waitForTimeout(2500);
+
+  const buttonLabel = await tryClickByText(page, STORY_COMPOSER_BUTTONS);
+  if (buttonLabel) {
+    actions.push(`Opened ${buttonLabel}`);
+    await page.waitForTimeout(1500);
+
+    const linkFilled =
+      (await tryFillByPlaceholder(
+        page,
+        [/link/i, /url/i, /website/i, /address/i, /destination/i],
+        payload.articleUrl || ''
+      )) ||
+      (await tryFillByPlaceholder(page, [/link/i, /url/i], payload.articleUrl || ''));
+
+    if (linkFilled) {
+      actions.push('Filled article link');
+    } else {
+      actions.push('Could not find a link field');
+    }
+  } else {
+    actions.push('Could not open link button controls');
+  }
+
+  await page.waitForTimeout(1500);
+  const publishLabel = await tryClickByText(page, STORY_COMPOSER_PUBLISH);
+  if (publishLabel) {
+    actions.push(`Pressed ${publishLabel}`);
+  } else {
+    actions.push('Publish button not found; browser left open for manual finishing');
+  }
+
+  return {
+    opened: true,
+    needsLogin: false,
+    message: 'Facebook story composer opened.',
+    destinationUrl,
+    actions,
+  };
 };
 
 const uploadFacebookStory = async (payload: FacebookStoryPayload & { isBreaking?: boolean }) => {
@@ -1670,6 +1854,31 @@ async function startServer() {
         published: false,
         message: error.message || "Facebook story publish failed.",
         error: error.message || "Facebook story publish failed.",
+      });
+    }
+  });
+
+  app.post("/api/meta/open-story-composer", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    const payload = req.body as FacebookStoryPayload & { isBreaking?: boolean };
+    if (!payload.title || (!payload.imageUrl && !payload.portraitImageUrl)) {
+      return res.status(400).json({
+        opened: false,
+        message: "Missing story content.",
+      });
+    }
+
+    try {
+      const result = await openFacebookStoryComposer(payload);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Facebook story composer launch failed:", error);
+      return res.status(500).json({
+        opened: false,
+        message: error.message || "Facebook story composer launch failed.",
+        error: error.message || "Facebook story composer launch failed.",
       });
     }
   });
