@@ -38,6 +38,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     storyLinkLabel: 'Swipe up to read',
     siteUrl: '',
   });
+  const [storyComposer, setStoryComposer] = React.useState({
+    title: '',
+    summary: '',
+    imageUrl: '',
+    articleUrl: '',
+  });
   const [metaConfig, setMetaConfig] = React.useState<MetaConfig>({
     appId: '',
     appSecret: '',
@@ -58,9 +64,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [isUploadingMedia, setIsUploadingMedia] = React.useState(false);
   const [regeneratingAssetId, setRegeneratingAssetId] = React.useState<string | null>(null);
   const mediaInputRef = React.useRef<HTMLInputElement | null>(null);
+  const customStoryImageInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const getPublicSiteBaseUrl = () => facebookConfig.siteUrl?.trim() || window.location.origin;
   const buildArticleUrl = (id: string) => `${getPublicSiteBaseUrl()}/?post=${id}`;
+  const buildStoryPayload = (overrides?: Partial<typeof storyComposer>) => ({
+    title: overrides?.title ?? storyComposer.title,
+    summary: overrides?.summary ?? storyComposer.summary,
+    imageUrl: overrides?.imageUrl ?? storyComposer.imageUrl,
+    articleUrl: overrides?.articleUrl ?? storyComposer.articleUrl,
+  });
 
   React.useEffect(() => {
     const loadState = async () => {
@@ -347,6 +360,111 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     }
   };
 
+  const handleCustomStoryImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const result = await uploadMediaAsset({ name: file.name, dataUrl });
+      const assetUrl = result.asset?.optimizedUrl || result.asset?.sourceUrl || '';
+      if (assetUrl) {
+        setStoryComposer((current) => ({ ...current, imageUrl: assetUrl }));
+        toast.success('Story image uploaded.');
+      } else {
+        toast.warning('Image uploaded, but no usable URL was returned.');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload story image.');
+    } finally {
+      if (customStoryImageInputRef.current) {
+        customStoryImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleOpenCustomStoryComposer = async () => {
+    const payload = buildStoryPayload();
+    if (!payload.title.trim() || !payload.imageUrl.trim() || !payload.articleUrl.trim()) {
+      toast.error('Please add a title, image, and link first.');
+      return;
+    }
+
+    if (!metaConfig.pageId.trim() || !metaConfig.pageAccessToken.trim()) {
+      toast.error('Meta credentials are required to open the composer.');
+      return;
+    }
+
+    setRepublishingArticleId('custom-story');
+    try {
+      const result = await openFacebookStoryComposer({
+        title: payload.title.trim(),
+        summary: payload.summary.trim(),
+        category: 'Facts',
+        imageUrl: payload.imageUrl.trim(),
+        portraitImageUrl: payload.imageUrl.trim(),
+        storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        articleUrl: payload.articleUrl.trim(),
+        isBreaking: false,
+      });
+
+      if (result.needsLogin) {
+        toast.info(result.message || 'Facebook login is required in the browser window.');
+      } else {
+        toast.success(result.message || 'Facebook story composer opened.');
+      }
+    } catch (error) {
+      console.error('Open custom story composer failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to open story composer.');
+    } finally {
+      setRepublishingArticleId(null);
+    }
+  };
+
+  const handlePublishCustomStory = async () => {
+    const payload = buildStoryPayload();
+    if (!payload.title.trim() || !payload.imageUrl.trim() || !payload.articleUrl.trim()) {
+      toast.error('Please add a title, image, and link first.');
+      return;
+    }
+
+    if (!metaConfig.pageId.trim() || !metaConfig.pageAccessToken.trim()) {
+      toast.error('Meta credentials are required to publish a story.');
+      return;
+    }
+
+    setRepublishingArticleId('custom-story');
+    try {
+      await publishFacebookStory({
+        title: payload.title.trim(),
+        summary: payload.summary.trim(),
+        category: 'Facts',
+        imageUrl: payload.imageUrl.trim(),
+        portraitImageUrl: payload.imageUrl.trim(),
+        storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        articleUrl: payload.articleUrl.trim(),
+        isBreaking: false,
+      });
+      toast.success('Custom story published.');
+    } catch (error) {
+      console.error('Publish custom story failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to publish story.');
+    } finally {
+      setRepublishingArticleId(null);
+    }
+  };
+
   const handleResetContent = async () => {
     const confirmed = window.confirm('This will delete all articles and drafts. Continue?');
     if (!confirmed) return;
@@ -595,10 +713,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       </div>
 
       <Tabs defaultValue="content" className="space-y-8">
-        <TabsList className="grid w-full max-w-3xl grid-cols-5">
+        <TabsList className="grid w-full max-w-3xl grid-cols-6">
           <TabsTrigger value="content" className="gap-2">
             <FileText size={16} />
             Content
+          </TabsTrigger>
+          <TabsTrigger value="story" className="gap-2">
+            <Facebook size={16} />
+            Story Builder
           </TabsTrigger>
           <TabsTrigger value="review" className="gap-2">
             <ClipboardList size={16} />
@@ -742,6 +864,100 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="story" className="space-y-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Story Builder</CardTitle>
+              <CardDescription>
+                Add a custom image and link, then open the Facebook composer or publish the story directly.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <input
+                ref={customStoryImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleCustomStoryImageUpload}
+              />
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="storyTitle">Story Title</Label>
+                  <Input
+                    id="storyTitle"
+                    value={storyComposer.title}
+                    onChange={(e) => setStoryComposer({ ...storyComposer, title: e.target.value })}
+                    placeholder="Electric Utopia: Tesla's New Model D Changes the Game"
+                  />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="storySummary">Story Summary</Label>
+                  <textarea
+                    id="storySummary"
+                    value={storyComposer.summary}
+                    onChange={(e) => setStoryComposer({ ...storyComposer, summary: e.target.value })}
+                    placeholder="Write a short summary that will appear on the story image."
+                    className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="storyImageUrl">Image URL</Label>
+                  <Input
+                    id="storyImageUrl"
+                    value={storyComposer.imageUrl}
+                    onChange={(e) => setStoryComposer({ ...storyComposer, imageUrl: e.target.value })}
+                    placeholder="https://..."
+                  />
+                  {storyComposer.imageUrl && (
+                    <div className="mt-3 overflow-hidden rounded-2xl border bg-muted/20">
+                      <img src={storyComposer.imageUrl} alt="Story preview" className="h-56 w-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="storyArticleUrl">Story Link</Label>
+                  <Input
+                    id="storyArticleUrl"
+                    value={storyComposer.articleUrl}
+                    onChange={(e) => setStoryComposer({ ...storyComposer, articleUrl: e.target.value })}
+                    placeholder="https://your-site.com/story-link"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button type="button" variant="outline" onClick={() => customStoryImageInputRef.current?.click()} className="gap-2">
+                  <Upload size={14} />
+                  Upload Image
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={republishingArticleId === 'custom-story'}
+                  onClick={handleOpenCustomStoryComposer}
+                  className="gap-2"
+                >
+                  {republishingArticleId === 'custom-story' ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
+                  Open Composer
+                </Button>
+                <Button
+                  type="button"
+                  disabled={republishingArticleId === 'custom-story'}
+                  onClick={handlePublishCustomStory}
+                  className="gap-2"
+                >
+                  {republishingArticleId === 'custom-story' ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
+                  Publish Story
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="review" className="space-y-8">
