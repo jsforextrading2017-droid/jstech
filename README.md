@@ -32,6 +32,8 @@ View your app in AI Studio: https://ai.studio/apps/52ca69e7-3cac-4acf-a71b-86733
 4. Use the start command:
    - `npm start`
 5. Railway will provide `PORT` automatically, and the server reads it at runtime.
+6. The first install should download Playwright's Chromium browser and Linux dependencies automatically via `postinstall`. If you ever see a missing browser/library error on the server, rerun `npm install` or `npx playwright install --with-deps chromium` in the deployment environment.
+7. For browser-based Facebook composer automation, deploy with the repo's `Dockerfile` so Chromium runs in an image that already includes its Linux dependencies.
 
 ## Facebook Story Publishing
 
