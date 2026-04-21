@@ -282,6 +282,7 @@ const generateImageUrl = async (
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v24.0";
 const FACEBOOK_PROFILE_DIR = path.join(process.cwd(), ".facebook-browser-profile");
 const STORY_WORK_DIR = path.join(os.tmpdir(), "news-story-composer");
+const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== 'false';
 
 let facebookBrowserContext: BrowserContext | null = null;
 let facebookBrowserPage: Page | null = null;
@@ -807,7 +808,7 @@ const launchFacebookComposerSession = async () => {
 
   try {
     facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-      headless: false,
+      headless: PLAYWRIGHT_HEADLESS,
       viewport: null,
       channel: 'chrome',
       args: ['--start-maximized'],
@@ -822,7 +823,7 @@ const launchFacebookComposerSession = async () => {
     console.warn('Chrome channel launch failed, falling back to bundled Chromium.', error);
     try {
       facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-        headless: false,
+        headless: PLAYWRIGHT_HEADLESS,
         viewport: null,
         args: ['--start-maximized'],
       });
