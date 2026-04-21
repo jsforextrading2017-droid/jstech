@@ -364,6 +364,22 @@ const parseDataUrl = (dataUrl: string) => {
   };
 };
 
+const tryReadLocalMediaBuffer = async (url: string) => {
+  if (!url.startsWith(MEDIA_URL_PREFIX + '/')) {
+    return null;
+  }
+
+  const filePath = mediaUrlToFilePath(url);
+  try {
+    return await fs.readFile(filePath);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+};
+
 const ensureParentDir = async (filePath: string) => {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 };
@@ -378,7 +394,16 @@ const recordMediaAsset = async (params: {
   mimeType: string;
 }) => {
   const filePath = mediaUrlToFilePath(params.optimizedUrl);
-  const stat = await fs.stat(filePath);
+  const stat = await fs.stat(filePath).catch(async (error: any) => {
+    if (error?.code !== 'ENOENT') {
+      throw error;
+    }
+
+    const sourceBuffer = await fetchImageBuffer(params.sourceUrl);
+    await ensureParentDir(filePath);
+    await fs.writeFile(filePath, sourceBuffer);
+    return fs.stat(filePath);
+  });
   const id = crypto
     .createHash('sha1')
     .update(JSON.stringify({
@@ -432,7 +457,7 @@ const optimizeMediaUrl = async (source: string, options: OptimizeMediaOptions) =
   try {
     await fs.access(filePath);
   } catch {
-    const inputBuffer = await fetchImageBuffer(source);
+    const inputBuffer = (await tryReadLocalMediaBuffer(source)) || await fetchImageBuffer(source);
     await ensureParentDir(filePath);
     let image = sharp(inputBuffer).resize(options.width, options.height, {
       fit: options.fit || 'cover',
@@ -464,13 +489,29 @@ const normalizeStoredImageFields = async <T extends {
   portraitImageSourceUrl?: string;
 }> => {
   const title = record.title || record.id || 'story';
+  const allowLocalSource = async (value?: string | null) => {
+    if (!value?.startsWith(MEDIA_URL_PREFIX + '/')) {
+      return value || null;
+    }
+
+    const localBuffer = await tryReadLocalMediaBuffer(value);
+    if (localBuffer) {
+      return value;
+    }
+
+    const storedAsset = (await listMediaAssets()).find(
+      (asset) => asset.optimized_url === value || asset.source_url === value
+    );
+    return storedAsset?.source_url || null;
+  };
+
   const imageSourceUrl =
-    record.imageSourceUrl ||
+    (await allowLocalSource(record.imageSourceUrl)) ||
     record.imageUrl ||
     fallbackImageUrl(title);
   const portraitSourceUrl =
-    record.portraitImageSourceUrl ||
-    record.portraitImageUrl;
+    (await allowLocalSource(record.portraitImageSourceUrl)) ||
+    (await allowLocalSource(record.portraitImageUrl));
 
   let imageUrl = record.imageUrl || imageSourceUrl;
   try {
@@ -810,30 +851,19 @@ const launchFacebookComposerSession = async () => {
     facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
       headless: PLAYWRIGHT_HEADLESS,
       viewport: null,
-      channel: 'chrome',
       args: ['--start-maximized'],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const missingBrowser = message.includes("Executable doesn't exist") || message.includes('Looks like Playwright was just installed or updated');
+    const missingBrowser =
+      message.includes("Executable doesn't exist") ||
+      message.includes('Looks like Playwright was just installed or updated') ||
+      message.includes('error while loading shared libraries');
     if (missingBrowser) {
-      throw new Error('Playwright browser is not installed. Run `npm install` so the postinstall browser download can complete, or run `npx playwright install chromium` on the server.');
+      throw new Error('Playwright cannot start Chromium in this deployment. Use the Docker image in this repo and redeploy so the browser dependencies are present.');
     }
 
-    console.warn('Chrome channel launch failed, falling back to bundled Chromium.', error);
-    try {
-      facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-        headless: PLAYWRIGHT_HEADLESS,
-        viewport: null,
-        args: ['--start-maximized'],
-      });
-    } catch (fallbackError) {
-      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      if (fallbackMessage.includes("Executable doesn't exist")) {
-        throw new Error('Playwright browser is not installed. Run `npm install` so the postinstall browser download can complete, or run `npx playwright install chromium` on the server.');
-      }
-      throw fallbackError;
-    }
+    throw error;
   }
   facebookBrowserContext.setDefaultTimeout(45000);
   facebookBrowserContext.on('close', () => {
