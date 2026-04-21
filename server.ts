@@ -890,17 +890,21 @@ const launchFacebookComposerSession = async () => {
   await fs.mkdir(FACEBOOK_PROFILE_DIR, { recursive: true });
 
   if (facebookBrowserContext && !facebookBrowserContext.isClosed()) {
+    console.log('[FB Composer] Reusing existing browser context.');
     return facebookBrowserContext;
   }
 
+  console.log('[FB Composer] Launching new Chromium browser context...');
   try {
     facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
       headless: PLAYWRIGHT_HEADLESS,
       viewport: null,
       args: ['--start-maximized'],
     });
+    console.log('[FB Composer] Browser context launched successfully.');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error('[FB Composer] Failed to launch browser context:', message);
     const missingBrowser =
       message.includes("Executable doesn't exist") ||
       message.includes('Looks like Playwright was just installed or updated') ||
@@ -913,6 +917,7 @@ const launchFacebookComposerSession = async () => {
   }
   facebookBrowserContext.setDefaultTimeout(45000);
   facebookBrowserContext.on('close', () => {
+    console.log('[FB Composer] Browser context closed.');
     facebookBrowserContext = null;
     facebookBrowserPage = null;
   });
@@ -938,11 +943,14 @@ const openFacebookStoryComposer = async (
       ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
       : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`;
 
+  console.log(`[FB Composer] Navigating to Facebook page: ${destinationUrl}`);
   await page.goto(destinationUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
 
   const currentUrl = page.url();
+  console.log(`[FB Composer] Current URL after navigation: ${currentUrl}`);
   if (/login|checkpoint/i.test(currentUrl)) {
+    console.warn('[FB Composer] Redirected to login/checkpoint — session not authenticated.');
     return {
       opened: true,
       needsLogin: true,
@@ -953,25 +961,34 @@ const openFacebookStoryComposer = async (
 
   const actions: string[] = [];
 
+  console.log('[FB Composer] Step 1: Looking for "Create story" button...');
   const composerLabel =
     (await tryClickByText(page, STORY_COMPOSER_PAGES)) || 'page feed';
+  console.log(`[FB Composer] Step 1 result: clicked "${composerLabel}"`);
   actions.push(`Opened ${composerLabel}`);
   await page.waitForTimeout(2000);
 
+  console.log('[FB Composer] Step 2: Looking for file input to upload story image...');
   const fileInputs = page.locator('input[type="file"]');
   if (await fileInputs.count()) {
     try {
+      console.log(`[FB Composer] Step 2: Uploading story image from ${storyFilePath}`);
       await fileInputs.first().setInputFiles(storyFilePath);
+      console.log('[FB Composer] Step 2 result: story image uploaded successfully.');
       actions.push('Uploaded story image');
     } catch (error) {
-      actions.push(`Image upload failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      const errMsg = error instanceof Error ? error.message : 'unknown error';
+      console.error('[FB Composer] Step 2 error: image upload failed:', errMsg);
+      actions.push(`Image upload failed: ${errMsg}`);
     }
   } else {
+    console.warn('[FB Composer] Step 2 result: no file input found on page.');
     actions.push('No file input found');
   }
 
   await page.waitForTimeout(2500);
 
+  console.log('[FB Composer] Step 3: Looking for sticker controls button...');
   const stickerSelector =
     (await tryClickBySelector(page, [
       '[aria-label*="sticker" i]',
@@ -981,12 +998,15 @@ const openFacebookStoryComposer = async (
     ])) ||
     (await tryClickByText(page, STORY_COMPOSER_STICKER_BUTTONS));
   if (stickerSelector) {
+    console.log(`[FB Composer] Step 3 result: opened sticker controls via "${stickerSelector}"`);
     actions.push(`Opened sticker controls via ${stickerSelector}`);
     await page.waitForTimeout(1200);
   } else {
+    console.warn('[FB Composer] Step 3 result: sticker controls not found — tried selectors and text labels.');
     actions.push('Sticker controls not found');
   }
 
+  console.log('[FB Composer] Step 4: Looking for link sticker option...');
   const linkStickerSelector =
     (await tryClickBySelector(page, [
       '[aria-label*="link" i]',
@@ -996,15 +1016,21 @@ const openFacebookStoryComposer = async (
     ])) ||
     (await tryClickByText(page, STORY_COMPOSER_LINK_STICKERS));
   if (linkStickerSelector) {
+    console.log(`[FB Composer] Step 4 result: selected link sticker via "${linkStickerSelector}"`);
     actions.push(`Selected link sticker via ${linkStickerSelector}`);
     await page.waitForTimeout(1200);
+  } else {
+    console.warn('[FB Composer] Step 4 result: link sticker option not found.');
   }
 
+  console.log('[FB Composer] Step 5: Looking for "Add button" / "Add link" button...');
   const buttonLabel = await tryClickByText(page, STORY_COMPOSER_BUTTONS);
   if (buttonLabel) {
+    console.log(`[FB Composer] Step 5 result: clicked "${buttonLabel}"`);
     actions.push(`Opened ${buttonLabel}`);
     await page.waitForTimeout(1500);
 
+    console.log(`[FB Composer] Step 6: Filling link URL field with: ${payload.articleUrl || '(empty)'}`);
     const linkFilled =
       (await tryFillByPlaceholder(
         page,
@@ -1014,19 +1040,25 @@ const openFacebookStoryComposer = async (
       (await tryFillByPlaceholder(page, [/link/i, /url/i], payload.articleUrl || ''));
 
     if (linkFilled) {
+      console.log('[FB Composer] Step 6 result: link URL field filled successfully.');
       actions.push('Filled article link');
     } else {
+      console.warn('[FB Composer] Step 6 result: could not find a link URL input field.');
       actions.push('Could not find a link field');
     }
   } else {
+    console.warn('[FB Composer] Step 5 result: "Add button" / "Add link" button not found — tried:', STORY_COMPOSER_BUTTONS.join(', '));
     actions.push('Could not open link button controls');
   }
 
   await page.waitForTimeout(1500);
+  console.log('[FB Composer] Step 7: Looking for "Share to story" / publish button...');
   const publishLabel = await tryClickByText(page, STORY_COMPOSER_PUBLISH);
   if (publishLabel) {
+    console.log(`[FB Composer] Step 7 result: clicked "${publishLabel}"`);
     actions.push(`Pressed ${publishLabel}`);
   } else {
+    console.warn('[FB Composer] Step 7 result: publish button not found — browser left open for manual finishing.');
     actions.push('Publish button not found; browser left open for manual finishing');
   }
 
