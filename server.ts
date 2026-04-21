@@ -795,6 +795,22 @@ const STORY_COMPOSER_BUTTONS = [
   'Link to website',
 ];
 
+const STORY_COMPOSER_STICKER_BUTTONS = [
+  'Sticker',
+  'Stickers',
+  'Add sticker',
+  'Add stickers',
+  'Stickers menu',
+];
+
+const STORY_COMPOSER_LINK_STICKERS = [
+  'Link',
+  'Link sticker',
+  'Website',
+  'URL',
+  'Link to website',
+];
+
 const STORY_COMPOSER_PUBLISH = [
   'Share to story',
   'Share',
@@ -825,6 +841,22 @@ const tryClickByText = async (page: Page, candidates: string[]) => {
       }
     } catch {
       // Keep trying other labels.
+    }
+  }
+
+  return null;
+};
+
+const tryClickBySelector = async (page: Page, selectors: string[]) => {
+  for (const selector of selectors) {
+    try {
+      const locator = page.locator(selector).first();
+      if (await locator.isVisible()) {
+        await locator.click();
+        return selector;
+      }
+    } catch {
+      // Continue trying selectors.
     }
   }
 
@@ -939,6 +971,34 @@ const openFacebookStoryComposer = async (
   }
 
   await page.waitForTimeout(2500);
+
+  const stickerSelector =
+    (await tryClickBySelector(page, [
+      '[aria-label*="sticker" i]',
+      '[title*="sticker" i]',
+      'button[aria-label*="sticker" i]',
+      '[role="button"][aria-label*="sticker" i]',
+    ])) ||
+    (await tryClickByText(page, STORY_COMPOSER_STICKER_BUTTONS));
+  if (stickerSelector) {
+    actions.push(`Opened sticker controls via ${stickerSelector}`);
+    await page.waitForTimeout(1200);
+  } else {
+    actions.push('Sticker controls not found');
+  }
+
+  const linkStickerSelector =
+    (await tryClickBySelector(page, [
+      '[aria-label*="link" i]',
+      '[title*="link" i]',
+      'button[aria-label*="link" i]',
+      '[role="button"][aria-label*="link" i]',
+    ])) ||
+    (await tryClickByText(page, STORY_COMPOSER_LINK_STICKERS));
+  if (linkStickerSelector) {
+    actions.push(`Selected link sticker via ${linkStickerSelector}`);
+    await page.waitForTimeout(1200);
+  }
 
   const buttonLabel = await tryClickByText(page, STORY_COMPOSER_BUTTONS);
   if (buttonLabel) {
