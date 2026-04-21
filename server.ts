@@ -807,7 +807,7 @@ const launchFacebookComposerSession = async () => {
 
   try {
     facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-      headless: false,
+      headless: true,
       viewport: null,
       channel: 'chrome',
       args: ['--start-maximized'],
@@ -822,7 +822,7 @@ const launchFacebookComposerSession = async () => {
     console.warn('Chrome channel launch failed, falling back to bundled Chromium.', error);
     try {
       facebookBrowserContext = await chromium.launchPersistentContext(FACEBOOK_PROFILE_DIR, {
-        headless: false,
+        headless: true,
         viewport: null,
         args: ['--start-maximized'],
       });
