@@ -399,11 +399,23 @@ const recordMediaAsset = async (params: {
       throw error;
     }
 
-    const sourceBuffer = await fetchImageBuffer(params.sourceUrl);
-    await ensureParentDir(filePath);
-    await fs.writeFile(filePath, sourceBuffer);
-    return fs.stat(filePath);
+    try {
+      const sourceBuffer = await fetchImageBuffer(params.sourceUrl);
+      await ensureParentDir(filePath);
+      await fs.writeFile(filePath, sourceBuffer);
+      return fs.stat(filePath);
+    } catch (sourceError: any) {
+      if (sourceError?.code === 'ENOENT') {
+        console.warn(`Skipping media asset record for missing source "${params.sourceUrl}".`);
+        return null;
+      }
+
+      throw sourceError;
+    }
   });
+  if (!stat) {
+    return '';
+  }
   const id = crypto
     .createHash('sha1')
     .update(JSON.stringify({
@@ -507,13 +519,14 @@ const normalizeStoredImageFields = async <T extends {
 
   const imageSourceUrl =
     (await allowLocalSource(record.imageSourceUrl)) ||
-    record.imageUrl ||
+    (await allowLocalSource(record.imageUrl)) ||
     fallbackImageUrl(title);
   const portraitSourceUrl =
     (await allowLocalSource(record.portraitImageSourceUrl)) ||
-    (await allowLocalSource(record.portraitImageUrl));
+    (await allowLocalSource(record.portraitImageUrl)) ||
+    fallbackPortraitUrl(title);
 
-  let imageUrl = record.imageUrl || imageSourceUrl;
+  let imageUrl = imageSourceUrl;
   try {
     imageUrl = await optimizeMediaUrl(imageSourceUrl, {
       width: 1200,
@@ -523,9 +536,10 @@ const normalizeStoredImageFields = async <T extends {
     });
   } catch (error) {
     console.warn(`Failed to optimize article image for "${title}". Falling back to source URL.`, error);
+    imageUrl = imageSourceUrl;
   }
 
-  let portraitImageUrl = record.portraitImageUrl;
+  let portraitImageUrl = portraitSourceUrl;
   if (portraitSourceUrl) {
     try {
       portraitImageUrl = await optimizeMediaUrl(portraitSourceUrl, {
@@ -860,7 +874,7 @@ const launchFacebookComposerSession = async () => {
       message.includes('Looks like Playwright was just installed or updated') ||
       message.includes('error while loading shared libraries');
     if (missingBrowser) {
-      throw new Error('Playwright cannot start Chromium in this deployment. Use the Docker image in this repo and redeploy so the browser dependencies are present.');
+      throw new Error('Playwright cannot start Chromium in this deployment. Redeploy with the Docker image from this repo so the browser dependencies are present.');
     }
 
     throw error;
