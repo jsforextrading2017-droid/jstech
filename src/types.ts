@@ -44,6 +44,7 @@ export interface FacebookConfig {
   pageName: string;
   storyCtaText: string;
   storyLinkLabel: string;
+  siteUrl?: string;
 }
 
 export interface MetaConfig {

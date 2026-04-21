@@ -15,6 +15,7 @@ interface ArticleDetailProps {
 
 export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig, facebookConfig, onBack }) => {
   const portraitImage = article.portraitImageUrl || article.imageUrl;
+  const publicSiteUrl = facebookConfig.siteUrl?.trim() || window.location.origin;
 
   const slugify = (value: string) =>
     value
@@ -236,12 +237,13 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({ article, adConfig,
   };
 
   const handleCopyFacebookStoryPack = async () => {
+    const articleUrl = `${publicSiteUrl}/?post=${article.id}`;
     const storyPack = [
       `${article.title}`,
       '',
       `${article.summary}`,
       '',
-      `${facebookConfig.storyCtaText}: ${window.location.href}`,
+      `${facebookConfig.storyCtaText}: ${articleUrl}`,
       '',
       `Page: ${facebookConfig.pageName}`,
       `Story link label: ${facebookConfig.storyLinkLabel}`,

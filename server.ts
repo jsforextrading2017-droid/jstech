@@ -107,6 +107,7 @@ const DEFAULT_FACEBOOK: FacebookConfig = {
   pageName: 'jshubnetwork',
   storyCtaText: 'Swipe to read',
   storyLinkLabel: 'Swipe up to read',
+  siteUrl: process.env.PUBLIC_SITE_URL || '',
 };
 const DEFAULT_META: MetaConfig = {
   appId: '',

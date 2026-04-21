@@ -36,6 +36,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
     pageName: 'jshubnetwork',
     storyCtaText: 'Swipe to read',
     storyLinkLabel: 'Swipe up to read',
+    siteUrl: '',
   });
   const [metaConfig, setMetaConfig] = React.useState<MetaConfig>({
     appId: '',
@@ -58,7 +59,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   const [regeneratingAssetId, setRegeneratingAssetId] = React.useState<string | null>(null);
   const mediaInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const buildArticleUrl = (id: string) => `${window.location.origin}/?post=${id}`;
+  const getPublicSiteBaseUrl = () => facebookConfig.siteUrl?.trim() || window.location.origin;
+  const buildArticleUrl = (id: string) => `${getPublicSiteBaseUrl()}/?post=${id}`;
 
   React.useEffect(() => {
     const loadState = async () => {
@@ -559,7 +561,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
   };
 
   const handleCopyMediaUrl = async (url: string) => {
-    await navigator.clipboard.writeText(`${window.location.origin}${url}`);
+    await navigator.clipboard.writeText(`${getPublicSiteBaseUrl()}${url}`);
     toast.success('Media URL copied.');
   };
 
@@ -1195,6 +1197,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                     onChange={(e) => setFacebookConfig({ ...facebookConfig, storyLinkLabel: e.target.value })}
                     placeholder="Read more"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="siteUrl">Public Site URL</Label>
+                  <Input
+                    id="siteUrl"
+                    value={facebookConfig.siteUrl || ''}
+                    onChange={(e) => setFacebookConfig({ ...facebookConfig, siteUrl: e.target.value })}
+                    placeholder="https://your-public-site.com"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This is the public article URL used in story links and copied share packs.
+                  </p>
                 </div>
 
                 <Button onClick={handleSaveFacebook} className="w-full md:w-auto">
