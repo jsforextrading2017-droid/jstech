@@ -10,7 +10,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { 
   Loader2, RefreshCw, Trash2, Wand2, Megaphone, 
-  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban, Key, ShieldCheck, Upload, Image as ImageIcon, Copy, Sparkles
+  FileText, Settings, CheckCircle2, XCircle, ClipboardList, Send, Ban, Key, ShieldCheck, Upload, Image as ImageIcon, Copy, Sparkles, Facebook
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
