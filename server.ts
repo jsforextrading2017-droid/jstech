@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
+import { exec } from "child_process";
 import OpenAI from "openai";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -1010,6 +1011,20 @@ const saveStoryComposerScreenshot = async (page: Page, title: string) => {
   return screenshotPath;
 };
 
+const openUrlInSystemBrowser = async (url: string) => {
+  if (process.platform === 'win32') {
+    exec(`cmd /c start "" "${url}"`);
+    return;
+  }
+
+  if (process.platform === 'darwin') {
+    exec(`open "${url}"`);
+    return;
+  }
+
+  exec(`xdg-open "${url}"`);
+};
+
 const launchFacebookComposerSession = async () => {
   await fs.mkdir(FACEBOOK_PROFILE_DIR, { recursive: true });
 
@@ -1418,6 +1433,7 @@ const openFacebookStoryWindow = async (
       ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
       : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`;
 
+  await openUrlInSystemBrowser(destinationUrl);
   await page.bringToFront().catch(() => undefined);
   await page.goto(destinationUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
