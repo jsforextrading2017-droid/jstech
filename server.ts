@@ -1044,6 +1044,18 @@ const launchFacebookComposerSession = async () => {
   return facebookBrowserContext;
 };
 
+const resetFacebookComposerSession = async () => {
+  if (facebookBrowserPage && !facebookBrowserPage.isClosed()) {
+    await facebookBrowserPage.close().catch(() => undefined);
+  }
+  facebookBrowserPage = null;
+
+  if (facebookBrowserContext && !facebookBrowserContext.isClosed()) {
+    await facebookBrowserContext.close().catch(() => undefined);
+  }
+  facebookBrowserContext = null;
+};
+
 const openFacebookStoryComposer = async (
   payload: FacebookStoryPayload & { isBreaking?: boolean }
 ) => {
@@ -1231,10 +1243,14 @@ const openFacebookStoryComposer = async (
 };
 
 const openFacebookStoryBot = async (
-  payload: FacebookStoryPayload & { isBreaking?: boolean }
+  payload: FacebookStoryPayload & { isBreaking?: boolean; resetSession?: boolean }
 ) => {
+  if (payload.resetSession) {
+    await resetFacebookComposerSession();
+  }
+
   const context = await launchFacebookComposerSession();
-  const page = context.pages()[0] || (await context.newPage());
+  const page = await context.newPage();
   facebookBrowserPage = page;
 
   const storyBuffer = await renderStoryImage(payload);
@@ -1254,6 +1270,7 @@ const openFacebookStoryBot = async (
   let loadedUrl = candidateUrls[0];
   for (const candidateUrl of candidateUrls) {
     try {
+      await page.bringToFront().catch(() => undefined);
       await page.goto(candidateUrl, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(3000);
       loadedUrl = candidateUrl;
@@ -1382,6 +1399,37 @@ const openFacebookStoryBot = async (
     message: 'Facebook story bot opened, but share did not complete.',
     destinationUrl: loadedUrl,
     actions,
+  };
+};
+
+const openFacebookStoryWindow = async (
+  payload: FacebookStoryPayload & { resetSession?: boolean }
+) => {
+  if (payload.resetSession) {
+    await resetFacebookComposerSession();
+  }
+
+  const context = await launchFacebookComposerSession();
+  const page = await context.newPage();
+  facebookBrowserPage = page;
+
+  const destinationUrl =
+    payload.pageId?.trim()
+      ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
+      : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`;
+
+  await page.bringToFront().catch(() => undefined);
+  await page.goto(destinationUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000);
+
+  const currentUrl = page.url();
+  return {
+    opened: true,
+    needsLogin: /login|checkpoint/i.test(currentUrl),
+    published: false,
+    message: 'Facebook browser window opened.',
+    destinationUrl,
+    actions: [`Opened ${destinationUrl}`],
   };
 };
 
@@ -2354,7 +2402,7 @@ async function startServer() {
     const token = await requireAdmin(req, res);
     if (!token) return;
 
-    const payload = req.body as FacebookStoryPayload & { isBreaking?: boolean };
+    const payload = req.body as FacebookStoryPayload & { isBreaking?: boolean; resetSession?: boolean };
     if (!payload.title || (!payload.imageUrl && !payload.portraitImageUrl)) {
       return res.status(400).json({
         opened: false,
@@ -2371,6 +2419,24 @@ async function startServer() {
         opened: false,
         message: error.message || "Facebook story bot launch failed.",
         error: error.message || "Facebook story bot launch failed.",
+      });
+    }
+  });
+
+  app.post("/api/meta/open-story-window", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    const payload = req.body as FacebookStoryPayload & { resetSession?: boolean };
+    try {
+      const result = await openFacebookStoryWindow(payload);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Facebook story window launch failed:", error);
+      return res.status(500).json({
+        opened: false,
+        message: error.message || "Facebook story window launch failed.",
+        error: error.message || "Facebook story window launch failed.",
       });
     }
   });

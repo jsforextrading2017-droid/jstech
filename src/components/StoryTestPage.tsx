@@ -1,5 +1,5 @@
 import React from 'react';
-import { uploadMediaAsset, openFacebookStoryBot, openFacebookStoryComposer, checkAdminSession, loginAdmin } from '../lib/newsApi';
+import { uploadMediaAsset, openFacebookStoryBot, openFacebookStoryWindow, openFacebookStoryComposer, checkAdminSession, loginAdmin } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -47,6 +47,7 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
   const [isUploading, setIsUploading] = React.useState(false);
   const [isPublishing, setIsPublishing] = React.useState(false);
   const [isBotPublishing, setIsBotPublishing] = React.useState(false);
+  const [isOpeningWindow, setIsOpeningWindow] = React.useState(false);
   const [botActions, setBotActions] = React.useState<string[]>([]);
   const [botMessage, setBotMessage] = React.useState('');
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -191,6 +192,7 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
         pageId: metaConfig.pageId,
         pageAccessToken: metaConfig.pageAccessToken,
         articleUrl: articleUrl.trim(),
+        resetSession: true,
         isBreaking: false,
       });
 
@@ -206,6 +208,37 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
       toast.error(error instanceof Error ? error.message : 'Failed to run story bot.');
     } finally {
       setIsBotPublishing(false);
+    }
+  };
+
+  const handleOpenWindow = async () => {
+    if (!metaConfig.pageId.trim()) {
+      toast.error('Save your Meta Page ID in Admin first.');
+      return;
+    }
+
+    setIsOpeningWindow(true);
+    setBotActions([]);
+    setBotMessage('');
+    try {
+      const result = await openFacebookStoryWindow({
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        resetSession: true,
+      });
+      setBotMessage(result.message || '');
+      setBotActions(result.actions || []);
+
+      if (result.needsLogin) {
+        toast.info('Facebook login page opened. Log in there, then run the bot.');
+      } else {
+        toast.success('Facebook window opened.');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to open browser window.');
+    } finally {
+      setIsOpeningWindow(false);
     }
   };
 
@@ -353,6 +386,10 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
             <Button type="button" onClick={handlePublish} disabled={isPublishing} className="gap-2">
               {isPublishing ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
               {isPublishing ? 'Publishing...' : 'Post Story'}
+            </Button>
+            <Button type="button" variant="secondary" onClick={handleOpenWindow} disabled={isOpeningWindow} className="gap-2">
+              {isOpeningWindow ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
+              {isOpeningWindow ? 'Opening...' : 'Open New Window'}
             </Button>
             <Button type="button" variant="outline" onClick={handleRunBot} disabled={isBotPublishing} className="gap-2">
               {isBotPublishing ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
