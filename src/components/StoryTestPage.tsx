@@ -1,5 +1,5 @@
 import React from 'react';
-import { uploadMediaAsset, openFacebookStoryComposer, checkAdminSession, loginAdmin } from '../lib/newsApi';
+import { uploadMediaAsset, openFacebookStoryBot, openFacebookStoryComposer, checkAdminSession, loginAdmin } from '../lib/newsApi';
 import { storage } from '../lib/storage';
 import { FacebookConfig, MetaConfig } from '../types';
 import { Button } from './ui/button';
@@ -46,6 +46,9 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
   const [articleUrl, setArticleUrl] = React.useState('');
   const [isUploading, setIsUploading] = React.useState(false);
   const [isPublishing, setIsPublishing] = React.useState(false);
+  const [isBotPublishing, setIsBotPublishing] = React.useState(false);
+  const [botActions, setBotActions] = React.useState<string[]>([]);
+  const [botMessage, setBotMessage] = React.useState('');
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
@@ -161,6 +164,51 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
     }
   };
 
+  const handleRunBot = async () => {
+    if (!title.trim() || !imageUrl.trim() || !articleUrl.trim()) {
+      toast.error('Add a title, a photo, and a link first.');
+      return;
+    }
+
+    if (!metaConfig.pageId.trim() || !metaConfig.pageAccessToken.trim()) {
+      toast.error('Save your Meta Page ID and Page Access Token in Admin first.');
+      return;
+    }
+
+    setIsBotPublishing(true);
+    setBotActions([]);
+    setBotMessage('');
+    try {
+      const result = await openFacebookStoryBot({
+        title: title.trim(),
+        summary: summary.trim(),
+        category: 'Facts',
+        imageUrl: imageUrl.trim(),
+        portraitImageUrl: imageUrl.trim(),
+        storyCtaText: facebookConfig.storyCtaText,
+        storyLinkLabel: facebookConfig.storyLinkLabel,
+        pageName: facebookConfig.pageName,
+        pageId: metaConfig.pageId,
+        pageAccessToken: metaConfig.pageAccessToken,
+        articleUrl: articleUrl.trim(),
+        isBreaking: false,
+      });
+
+      if (result.published) {
+        toast.success('Facebook story bot published with the link sticker.');
+      } else {
+        toast.warning(result.message || 'The bot did not finish publishing.');
+      }
+      setBotMessage(result.message || '');
+      setBotActions(result.actions || []);
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : 'Failed to run story bot.');
+    } finally {
+      setIsBotPublishing(false);
+    }
+  };
+
   if (isCheckingAuth) {
     return (
       <div className="container mx-auto px-4 py-32 text-center">
@@ -237,6 +285,9 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
           <CardDescription>
             This uses the saved Meta settings and the strict link-sticker composer flow.
           </CardDescription>
+          <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
+            Visual tip: run the server with <code>PLAYWRIGHT_HEADLESS=false</code> to watch the browser window live while the bot works.
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <input
@@ -303,7 +354,26 @@ export const StoryTestPage: React.FC<StoryTestPageProps> = ({ onBackToAdmin }) =
               {isPublishing ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
               {isPublishing ? 'Publishing...' : 'Post Story'}
             </Button>
+            <Button type="button" variant="outline" onClick={handleRunBot} disabled={isBotPublishing} className="gap-2">
+              {isBotPublishing ? <Loader2 className="animate-spin" size={14} /> : <Facebook size={14} />}
+              {isBotPublishing ? 'Running Bot...' : 'Run Content Library Bot'}
+            </Button>
           </div>
+
+          {(botMessage || botActions.length > 0) && (
+            <div className="rounded-2xl border bg-muted/20 p-4">
+              <div className="mb-3 text-xs uppercase tracking-[0.3em] text-muted-foreground">Bot Trace</div>
+              {botMessage && <div className="mb-3 text-sm font-medium">{botMessage}</div>}
+              <div className="max-h-72 space-y-2 overflow-auto pr-2">
+                {botActions.map((action, index) => (
+                  <div key={`${index}-${action}`} className="rounded-lg border bg-background px-3 py-2 text-sm">
+                    <span className="mr-2 text-xs font-bold text-muted-foreground">{index + 1}.</span>
+                    {action}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

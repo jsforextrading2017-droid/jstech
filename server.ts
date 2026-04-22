@@ -787,6 +787,22 @@ const STORY_COMPOSER_PAGES = [
   'Create story',
 ];
 
+const STORY_BOT_ENTRY_PAGES = [
+  'Content Library',
+  'Content library',
+  'Create',
+  'Create new',
+  'Create story',
+];
+
+const STORY_BOT_CREATE_STEPS = [
+  'Story',
+  'Stories',
+  'Photo story',
+  'Create photo story',
+  'Create a photo story',
+];
+
 const STORY_COMPOSER_BUTTONS = [
   'Add button',
   'Add Link',
@@ -794,6 +810,15 @@ const STORY_COMPOSER_BUTTONS = [
   'Visit a linked site',
   'Visit linked site',
   'Link to website',
+];
+
+const STORY_COMPOSER_WEB_LINK_BUTTONS = [
+  'Web link',
+  'Web Link',
+  'Website',
+  'Website link',
+  'Link',
+  'Add link',
 ];
 
 const STORY_COMPOSER_STICKER_BUTTONS = [
@@ -1198,6 +1223,161 @@ const openFacebookStoryComposer = async (
     published: false,
     message: 'Facebook story composer opened, but publish did not complete.',
     destinationUrl,
+    actions,
+  };
+};
+
+const openFacebookStoryBot = async (
+  payload: FacebookStoryPayload & { isBreaking?: boolean }
+) => {
+  const context = await launchFacebookComposerSession();
+  const page = context.pages()[0] || (await context.newPage());
+  facebookBrowserPage = page;
+
+  const storyBuffer = await renderStoryImage(payload);
+  await fs.mkdir(STORY_WORK_DIR, { recursive: true });
+  const storyFileName = `${slugify(payload.title || 'story')}-bot-story.jpg`;
+  const storyFilePath = path.join(STORY_WORK_DIR, storyFileName);
+  await fs.writeFile(storyFilePath, storyBuffer);
+
+  const candidateUrls = [
+    'https://business.facebook.com/latest/content_library',
+    'https://www.facebook.com/content_library',
+    payload.pageId?.trim()
+      ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
+      : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`,
+  ];
+
+  let loadedUrl = candidateUrls[0];
+  for (const candidateUrl of candidateUrls) {
+    try {
+      await page.goto(candidateUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(3000);
+      loadedUrl = candidateUrl;
+      break;
+    } catch (error) {
+      loadedUrl = candidateUrl;
+    }
+  }
+
+  const currentUrl = page.url();
+  if (/login|checkpoint/i.test(currentUrl)) {
+    return {
+      opened: true,
+      needsLogin: true,
+      published: false,
+      message: 'Facebook login is required in the browser window. Log in once, then run this again.',
+      destinationUrl: loadedUrl,
+      actions: [`Opened ${loadedUrl}`],
+    };
+  }
+
+  const actions: string[] = [`Opened ${loadedUrl}`];
+
+  const createEntry =
+    (await tryClickByText(page, STORY_BOT_ENTRY_PAGES)) ||
+    (await tryClickBySelector(page, [
+      '[aria-label*="content library" i]',
+      '[title*="content library" i]',
+      'button[aria-label*="create" i]',
+      '[role="button"][aria-label*="create" i]',
+    ]));
+  if (createEntry) {
+    actions.push(`Opened create entry via ${createEntry}`);
+    await page.waitForTimeout(1500);
+  } else {
+    actions.push('Content Library create entry not found');
+  }
+
+  const storyEntry = await tryClickByText(page, STORY_BOT_CREATE_STEPS);
+  if (storyEntry) {
+    actions.push(`Selected story flow via ${storyEntry}`);
+    await page.waitForTimeout(1500);
+  } else {
+    actions.push('Story flow entry not found');
+  }
+
+  const photoStoryEntry = await tryClickByText(page, STORY_COMPOSER_PAGES);
+  if (photoStoryEntry) {
+    actions.push(`Selected photo story via ${photoStoryEntry}`);
+    await page.waitForTimeout(2000);
+  } else {
+    actions.push('Photo story entry not found');
+  }
+
+  const fileInputs = page.locator('input[type="file"]');
+  if (await fileInputs.count()) {
+    try {
+      await fileInputs.first().setInputFiles(storyFilePath);
+      actions.push('Uploaded story photo');
+    } catch (error) {
+      actions.push(`Photo upload failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  } else {
+    actions.push('No file input found');
+  }
+
+  await page.waitForTimeout(2500);
+
+  const buttonLabel =
+    (await tryClickByText(page, STORY_COMPOSER_WEB_LINK_BUTTONS)) ||
+    (await tryClickByText(page, STORY_COMPOSER_BUTTONS));
+  if (buttonLabel) {
+    actions.push(`Opened link button via ${buttonLabel}`);
+    await page.waitForTimeout(1200);
+  } else {
+    actions.push('Link button controls not found');
+  }
+
+  const linkFilled =
+    (await tryFillByPlaceholder(page, [/link/i, /url/i, /website/i, /address/i, /destination/i], payload.articleUrl || '')) ||
+    (await tryFillByAccessibleHints(page, [/link/i, /url/i, /website/i, /address/i, /destination/i], payload.articleUrl || ''));
+  if (linkFilled) {
+    actions.push('Filled article link');
+  } else {
+    actions.push('Could not fill the article link');
+  }
+
+  const articleUrlConfirmed = linkFilled && (await confirmArticleUrlVisible(page, payload.articleUrl || ''));
+  if (!articleUrlConfirmed) {
+    actions.push('Stopped because the article URL was not confirmed in the bot flow');
+    return {
+      opened: true,
+      needsLogin: false,
+      published: false,
+      message: 'Facebook story bot opened, but the article URL was not confirmed.',
+      destinationUrl: loadedUrl,
+      actions,
+    };
+  }
+
+  try {
+    const screenshotPath = await saveStoryComposerScreenshot(page, `${payload.title || 'story'}-bot`);
+    actions.push(`Saved bot screenshot to ${screenshotPath}`);
+  } catch (error) {
+    actions.push(`Screenshot failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+
+  const shareLabel = await tryClickByText(page, STORY_COMPOSER_PUBLISH);
+  if (shareLabel) {
+    actions.push(`Pressed ${shareLabel}`);
+    return {
+      opened: true,
+      needsLogin: false,
+      published: true,
+      message: 'Facebook story bot completed.',
+      destinationUrl: loadedUrl,
+      actions,
+    };
+  }
+
+  actions.push('Share button not found; bot left the composer open');
+  return {
+    opened: true,
+    needsLogin: false,
+    published: false,
+    message: 'Facebook story bot opened, but share did not complete.',
+    destinationUrl: loadedUrl,
     actions,
   };
 };
@@ -2163,6 +2343,31 @@ async function startServer() {
         opened: false,
         message: error.message || "Facebook story composer launch failed.",
         error: error.message || "Facebook story composer launch failed.",
+      });
+    }
+  });
+
+  app.post("/api/meta/open-story-bot", async (req, res) => {
+    const token = await requireAdmin(req, res);
+    if (!token) return;
+
+    const payload = req.body as FacebookStoryPayload & { isBreaking?: boolean };
+    if (!payload.title || (!payload.imageUrl && !payload.portraitImageUrl)) {
+      return res.status(400).json({
+        opened: false,
+        message: "Missing story content.",
+      });
+    }
+
+    try {
+      const result = await openFacebookStoryBot(payload);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Facebook story bot launch failed:", error);
+      return res.status(500).json({
+        opened: false,
+        message: error.message || "Facebook story bot launch failed.",
+        error: error.message || "Facebook story bot launch failed.",
       });
     }
   });
