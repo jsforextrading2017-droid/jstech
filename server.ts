@@ -283,7 +283,10 @@ const generateImageUrl = async (
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v24.0";
 const FACEBOOK_PROFILE_DIR = path.join(process.cwd(), ".facebook-browser-profile");
 const STORY_WORK_DIR = path.join(os.tmpdir(), "news-story-composer");
-const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== 'false';
+const PLAYWRIGHT_HEADLESS =
+  process.env.PLAYWRIGHT_HEADLESS
+    ? process.env.PLAYWRIGHT_HEADLESS !== 'false'
+    : process.env.NODE_ENV === 'production';
 
 let facebookBrowserContext: BrowserContext | null = null;
 let facebookBrowserPage: Page | null = null;
