@@ -2,6 +2,7 @@ import React from 'react';
 import { Header } from './components/Header';
 import { ArticleCard } from './components/ArticleCard';
 import { AdminPanel } from './components/AdminPanel';
+import { StoryTestPage } from './components/StoryTestPage';
 import { ArticleDetail } from './components/ArticleDetail';
 import { AdBanner } from './components/AdBanner';
 import { storage } from './lib/storage';
@@ -17,9 +18,13 @@ import { LogIn, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
-  const getViewFromPath = () => (window.location.pathname.startsWith('/admin') ? 'admin' : 'news');
+  const getViewFromPath = () => {
+    if (window.location.pathname.startsWith('/admin')) return 'admin';
+    if (window.location.pathname.startsWith('/story-test')) return 'story-test';
+    return 'news';
+  };
   const getPostIdFromPath = () => new URLSearchParams(window.location.search).get('post');
-  const [view, setView] = React.useState<'news' | 'admin'>(getViewFromPath);
+  const [view, setView] = React.useState<'news' | 'admin' | 'story-test'>(getViewFromPath);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = React.useState(false);
   const [isCheckingAdmin, setIsCheckingAdmin] = React.useState(true);
   const [adminUsername, setAdminUsername] = React.useState('admin');
@@ -52,7 +57,7 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    if (window.location.pathname.startsWith('/admin')) {
+    if (window.location.pathname.startsWith('/admin') || window.location.pathname.startsWith('/story-test')) {
       return;
     }
 
@@ -68,7 +73,8 @@ export default function App() {
 
   React.useEffect(() => {
     const syncAuth = async () => {
-      if (!window.location.pathname.startsWith('/admin')) {
+      const protectedView = window.location.pathname.startsWith('/admin') || window.location.pathname.startsWith('/story-test');
+      if (!protectedView) {
         setIsAdminAuthenticated(false);
         setIsCheckingAdmin(false);
         return;
@@ -121,8 +127,8 @@ export default function App() {
       });
   };
 
-  const navigateToView = (nextView: 'news' | 'admin') => {
-    const nextPath = nextView === 'admin' ? '/admin' : '/';
+  const navigateToView = (nextView: 'news' | 'admin' | 'story-test') => {
+    const nextPath = nextView === 'admin' ? '/admin' : nextView === 'story-test' ? '/story-test' : '/';
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, '', nextPath);
     }
@@ -246,6 +252,59 @@ export default function App() {
               setIsAdminAuthenticated(false);
             }}
           />
+          )
+        ) : view === 'story-test' ? (
+          isCheckingAdmin ? (
+            <div className="container mx-auto px-4 py-32 text-center">
+              <p className="text-muted-foreground">Checking admin session...</p>
+            </div>
+          ) : !isAdminAuthenticated ? (
+            <div className="container mx-auto px-4 py-20">
+              <div className="mx-auto max-w-md rounded-[2rem] border bg-card p-8 shadow-sm">
+                <div className="mb-8 text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <ShieldCheck size={32} />
+                  </div>
+                  <h1 className="text-3xl font-serif font-black">Story Test Login</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Enter your admin credentials to continue.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="storyTestUsername">Username</Label>
+                    <Input
+                      id="storyTestUsername"
+                      value={adminUsername}
+                      onChange={(e) => setAdminUsername(e.target.value)}
+                      autoComplete="username"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="storyTestPassword">Password</Label>
+                    <Input
+                      id="storyTestPassword"
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <Button className="w-full gap-2" onClick={handleAdminLogin} disabled={isAdminLoggingIn}>
+                    <LogIn size={16} />
+                    {isAdminLoggingIn ? 'Signing in...' : 'Log In'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <StoryTestPage
+              onBackToAdmin={() => {
+                window.history.pushState({}, '', '/admin');
+                setView('admin');
+              }}
+            />
           )
         ) : (
           <div className="relative overflow-hidden">

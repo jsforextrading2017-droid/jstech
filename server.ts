@@ -867,7 +867,7 @@ const tryClickBySelector = async (page: Page, selectors: string[]) => {
 };
 
 const tryFillByPlaceholder = async (page: Page, patterns: RegExp[], value: string) => {
-  const inputs = page.locator('input[type="text"], textarea');
+  const inputs = page.locator('input[type="text"], input[type="url"], textarea, [contenteditable="true"]');
   const total = await inputs.count();
   for (let index = 0; index < total; index += 1) {
     const field = inputs.nth(index);
@@ -887,6 +887,99 @@ const tryFillByPlaceholder = async (page: Page, patterns: RegExp[], value: strin
   }
 
   return false;
+};
+
+const tryFillByAccessibleHints = async (page: Page, patterns: RegExp[], value: string) => {
+  const candidates = page.locator('input, textarea, [contenteditable="true"]');
+  const total = await candidates.count();
+  for (let index = 0; index < total; index += 1) {
+    const field = candidates.nth(index);
+    try {
+      if (!(await field.isVisible())) {
+        continue;
+      }
+
+      const [placeholder, ariaLabel, title, name, role, valueAttr] = await Promise.all([
+        field.getAttribute('placeholder'),
+        field.getAttribute('aria-label'),
+        field.getAttribute('title'),
+        field.getAttribute('name'),
+        field.getAttribute('role'),
+        field.getAttribute('value'),
+      ]);
+
+      const haystack = [placeholder, ariaLabel, title, name, role, valueAttr]
+        .filter((item): item is string => Boolean(item))
+        .join(' ');
+
+      if (patterns.some((pattern) => pattern.test(haystack))) {
+        try {
+          await field.fill(value);
+        } catch {
+          await field.evaluate((node, nextValue) => {
+            if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+              node.value = String(nextValue);
+              node.dispatchEvent(new Event('input', { bubbles: true }));
+              node.dispatchEvent(new Event('change', { bubbles: true }));
+              return;
+            }
+
+            if (node instanceof HTMLElement && node.isContentEditable) {
+              node.textContent = String(nextValue);
+              node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: String(nextValue) }));
+              node.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }, value);
+        }
+        return true;
+      }
+    } catch {
+      // Ignore and continue scanning.
+    }
+  }
+
+  return false;
+};
+
+const confirmArticleUrlVisible = async (page: Page, articleUrl: string) => {
+  if (!articleUrl) {
+    return false;
+  }
+
+  const urlText = articleUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const directMatch = page.getByText(articleUrl, { exact: false }).first();
+  if (await directMatch.isVisible().catch(() => false)) {
+    return true;
+  }
+
+  const selectorMatch = page.locator(`input[value*="${urlText}"], textarea[value*="${urlText}"], [contenteditable="true"]:text-is("${articleUrl}")`);
+  if (await selectorMatch.first().isVisible().catch(() => false)) {
+    return true;
+  }
+
+  return page.evaluate((expectedUrl) => {
+    const nodes = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'));
+    return nodes.some((node) => {
+      if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+        return (node.value || '').includes(expectedUrl);
+      }
+      if (node instanceof HTMLElement && node.isContentEditable) {
+        return (node.textContent || '').includes(expectedUrl);
+      }
+      return false;
+    });
+  }, articleUrl);
+};
+
+const saveStoryComposerScreenshot = async (page: Page, title: string) => {
+  await fs.mkdir(STORY_WORK_DIR, { recursive: true });
+  const safeName = `${slugify(title || 'story')}-link-check-${Date.now()}.png`;
+  const screenshotPath = path.join(STORY_WORK_DIR, safeName);
+  await page.screenshot({
+    path: screenshotPath,
+    fullPage: false,
+  });
+  return screenshotPath;
 };
 
 const launchFacebookComposerSession = async () => {
@@ -1017,10 +1110,32 @@ const openFacebookStoryComposer = async (
         [/link/i, /url/i, /website/i, /address/i, /destination/i],
         payload.articleUrl || ''
       )) ||
-      (await tryFillByPlaceholder(page, [/link/i, /url/i], payload.articleUrl || ''));
+      (await tryFillByAccessibleHints(page, [/link/i, /url/i, /website/i, /address/i, /destination/i], payload.articleUrl || ''));
 
-    if (linkFilled) {
+    const articleUrlConfirmed = linkFilled && (await confirmArticleUrlVisible(page, payload.articleUrl || ''));
+
+    if (articleUrlConfirmed) {
       actions.push('Filled article link');
+      try {
+        const screenshotPath = await saveStoryComposerScreenshot(page, payload.title || 'story');
+        actions.push(`Saved link-check screenshot to ${screenshotPath}`);
+      } catch (error) {
+        actions.push(`Screenshot failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
+
+      const visibleBodyText = await page.locator('body').innerText().catch(() => '');
+      if (payload.articleUrl && !visibleBodyText.includes(payload.articleUrl)) {
+        actions.push('Stopped because the article URL was not visible in the composer text');
+        return {
+          opened: true,
+          needsLogin: false,
+          published: false,
+          message: 'Facebook story composer opened, but the article URL was not visible after the link sticker step.',
+          destinationUrl,
+          actions,
+        };
+      }
+
       await page.waitForTimeout(500);
       const confirmLabel = await tryClickByText(page, [
         'Done',
@@ -1043,7 +1158,7 @@ const openFacebookStoryComposer = async (
         }
       }
     } else {
-      actions.push('Could not find a link field');
+      actions.push('Could not confirm the article URL in the link sticker');
     }
   } else {
     actions.push('Could not open link button controls');

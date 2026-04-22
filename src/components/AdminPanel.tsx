@@ -714,6 +714,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
                   : 'No OpenAI key saved'}
             </p>
           </div>
+          <Button variant="outline" size="sm" onClick={() => { window.location.href = '/story-test'; }} className="gap-2">
+            <Facebook size={14} />
+            Story Test
+          </Button>
           <Button variant="outline" size="sm" onClick={handleCheckStatus} disabled={isCheckingStatus} className="gap-2">
             {isCheckingStatus ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
             Refresh Status
