@@ -61,6 +61,7 @@ type FacebookConfig = {
   pageName: string;
   storyCtaText: string;
   storyLinkLabel: string;
+  siteUrl?: string;
 };
 
 type ArticleRecord = {
@@ -809,6 +810,8 @@ const STORY_COMPOSER_LINK_STICKERS = [
   'Website',
   'URL',
   'Link to website',
+  'Add link',
+  'Add link sticker',
 ];
 
 const STORY_COMPOSER_PUBLISH = [
@@ -952,6 +955,7 @@ const openFacebookStoryComposer = async (
   }
 
   const actions: string[] = [];
+  let linkStickerApplied = false;
 
   const composerLabel =
     (await tryClickByText(page, STORY_COMPOSER_PAGES)) || 'page feed';
@@ -998,6 +1002,8 @@ const openFacebookStoryComposer = async (
   if (linkStickerSelector) {
     actions.push(`Selected link sticker via ${linkStickerSelector}`);
     await page.waitForTimeout(1200);
+  } else {
+    actions.push('Link sticker controls not found');
   }
 
   const buttonLabel = await tryClickByText(page, STORY_COMPOSER_BUTTONS);
@@ -1015,6 +1021,27 @@ const openFacebookStoryComposer = async (
 
     if (linkFilled) {
       actions.push('Filled article link');
+      await page.waitForTimeout(500);
+      const confirmLabel = await tryClickByText(page, [
+        'Done',
+        'Add',
+        'Save',
+        'Apply',
+        'Insert',
+        'Confirm',
+      ]);
+      if (confirmLabel) {
+        actions.push(`Confirmed link sticker via ${confirmLabel}`);
+        linkStickerApplied = true;
+      } else {
+        try {
+          await page.keyboard.press('Enter');
+          actions.push('Confirmed link sticker with Enter');
+          linkStickerApplied = true;
+        } catch {
+          actions.push('Could not confirm link sticker');
+        }
+      }
     } else {
       actions.push('Could not find a link field');
     }
@@ -1022,10 +1049,30 @@ const openFacebookStoryComposer = async (
     actions.push('Could not open link button controls');
   }
 
+  if (!linkStickerApplied) {
+    actions.push('Stopped before publishing because the link sticker was not confirmed');
+    return {
+      opened: true,
+      needsLogin: false,
+      published: false,
+      message: 'Facebook story composer opened, but the link sticker was not confirmed.',
+      destinationUrl,
+      actions,
+    };
+  }
+
   await page.waitForTimeout(1500);
   const publishLabel = await tryClickByText(page, STORY_COMPOSER_PUBLISH);
   if (publishLabel) {
     actions.push(`Pressed ${publishLabel}`);
+    return {
+      opened: true,
+      needsLogin: false,
+      published: true,
+      message: 'Facebook story composer opened and link sticker was attached.',
+      destinationUrl,
+      actions,
+    };
   } else {
     actions.push('Publish button not found; browser left open for manual finishing');
   }
@@ -1033,7 +1080,8 @@ const openFacebookStoryComposer = async (
   return {
     opened: true,
     needsLogin: false,
-    message: 'Facebook story composer opened.',
+    published: false,
+    message: 'Facebook story composer opened, but publish did not complete.',
     destinationUrl,
     actions,
   };

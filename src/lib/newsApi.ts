@@ -215,14 +215,14 @@ export async function openFacebookStoryComposer(payload: {
   pageAccessToken: string;
   articleUrl?: string;
   isBreaking?: boolean;
-}): Promise<{ opened: boolean; needsLogin?: boolean; message?: string; actions?: string[] }> {
+}): Promise<{ opened: boolean; needsLogin?: boolean; published?: boolean; message?: string; actions?: string[] }> {
   const response = await fetch('/api/meta/open-story-composer', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
   });
 
-  const { raw, data } = await parseResponseBody<{ opened: boolean; needsLogin?: boolean; message?: string; actions?: string[] }>(response);
+  const { raw, data } = await parseResponseBody<{ opened: boolean; needsLogin?: boolean; published?: boolean; message?: string; actions?: string[] }>(response);
   if (!response.ok) {
     const details = (data as any).message || (data as any).error || (data as any).raw || raw;
     throw new Error(String(details || 'Failed to open Facebook story composer'));

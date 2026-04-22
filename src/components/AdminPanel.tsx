@@ -154,7 +154,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
       const canPublishStory = metaConfig.pageId.trim() && metaConfig.pageAccessToken.trim();
       if (canPublishStory) {
         try {
-          await publishFacebookStory({
+          const storyPayload = {
             title: newArticleData.title || category,
             summary: newArticleData.summary || '',
             category,
@@ -167,15 +167,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onArticlesUpdate, onLogo
             pageAccessToken: metaConfig.pageAccessToken,
             articleUrl: buildArticleUrl(draft.id),
             isBreaking: Boolean(newArticleData.isBreaking),
-          });
-          const updatedDraft = await storage.saveDraft({
-            ...savedDraft,
-            facebookStoryStatus: 'posted',
-            facebookStoryPublishedAt: new Date().toISOString(),
-            facebookStoryError: undefined,
-          });
-          setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
-          toast.success("Facebook Story published automatically.");
+          };
+
+          const composerResult = await openFacebookStoryComposer(storyPayload);
+          if (composerResult.published) {
+            const updatedDraft = await storage.saveDraft({
+              ...savedDraft,
+              facebookStoryStatus: 'posted',
+              facebookStoryPublishedAt: new Date().toISOString(),
+              facebookStoryError: undefined,
+            });
+            setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
+            toast.success("Facebook Story published automatically with the article link.");
+          } else {
+            const updatedDraft = await storage.saveDraft({
+              ...savedDraft,
+              facebookStoryStatus: 'skipped',
+              facebookStoryError: composerResult.message || 'Facebook Story publish did not complete.',
+            });
+            setDrafts((current) => current.map((item) => (item.id === updatedDraft.id ? updatedDraft : item)));
+            toast.warning("Draft saved, but the Facebook Story was not published because the link sticker was not confirmed.");
+          }
         } catch (storyError) {
           console.error("Facebook story publish failed:", storyError);
           const updatedDraft = await storage.saveDraft({
