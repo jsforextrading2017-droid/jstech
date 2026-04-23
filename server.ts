@@ -1025,6 +1025,9 @@ const openUrlInSystemBrowser = async (url: string) => {
   exec(`xdg-open "${url}"`);
 };
 
+const buildFacebookLoginUrl = (nextUrl: string) =>
+  `https://www.facebook.com/login.php?next=${encodeURIComponent(nextUrl)}`;
+
 const launchFacebookComposerSession = async () => {
   await fs.mkdir(FACEBOOK_PROFILE_DIR, { recursive: true });
 
@@ -1275,8 +1278,8 @@ const openFacebookStoryBot = async (
   await fs.writeFile(storyFilePath, storyBuffer);
 
   const candidateUrls = [
-    'https://business.facebook.com/latest/content_library',
-    'https://www.facebook.com/content_library',
+    buildFacebookLoginUrl('https://business.facebook.com/latest/content_library'),
+    buildFacebookLoginUrl('https://www.facebook.com/content_library'),
     payload.pageId?.trim()
       ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
       : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`,
@@ -1432,10 +1435,11 @@ const openFacebookStoryWindow = async (
     payload.pageId?.trim()
       ? `https://www.facebook.com/profile.php?id=${encodeURIComponent(payload.pageId.trim())}`
       : `https://www.facebook.com/${encodeURIComponent(payload.pageName || 'jshubnetwork')}`;
+  const loginUrl = buildFacebookLoginUrl(destinationUrl);
 
-  await openUrlInSystemBrowser(destinationUrl);
+  await openUrlInSystemBrowser(loginUrl);
   await page.bringToFront().catch(() => undefined);
-  await page.goto(destinationUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
 
   const currentUrl = page.url();
